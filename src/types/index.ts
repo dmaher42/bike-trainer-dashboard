@@ -52,3 +52,9 @@ export interface MetricProps {
   value: number | string;
   unit?: string;
 }
+
+export interface LessonActivitiesWeek {
+  week: number;
+  activities: string[];
+  notes?: string;
+}
