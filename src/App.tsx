@@ -3,6 +3,9 @@ import { Metrics, Sample } from "./types";
 import { useMetrics } from "./hooks/useMetrics";
 import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
+import { useRoute } from "./hooks/useRoute";
+import VirtualMap from "./components/VirtualMap";
+import RouteLoader from "./components/RouteLoader";
 
 function App() {
   const [sim, setSim] = useState(false);
@@ -16,6 +19,14 @@ function App() {
     stopRide,
     resetRide,
   } = useMetrics(sim, rideOn);
+
+  const {
+    route,
+    isLoading,
+    error,
+    loadGPX,
+    resetToDefault,
+  } = useRoute();
 
   const handleStartRide = () => {
     if (startRide()) {
@@ -77,6 +88,23 @@ function App() {
             </button>
           </div>
         </div>
+
+        <section className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-medium">Virtual Route</h2>
+            <RouteLoader
+              route={route}
+              isLoading={isLoading}
+              error={error}
+              loadGpxFile={loadGPX}
+              resetRoute={resetToDefault}
+            />
+          </div>
+          <VirtualMap route={route} metrics={metrics} />
+          <p className="mt-2 text-neutral-400 text-sm">
+            Tip: Load a .gpx file to follow a real-world route.
+          </p>
+        </section>
 
         <section className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
           <h2 className="text-lg font-medium mb-3">Recent Samples</h2>
