@@ -150,6 +150,4 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
     stopRide,
     resetRide,
   };
-};
-
-export default useMetrics;
+}
