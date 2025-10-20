@@ -5,6 +5,8 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Global border color used across components
+        border: 'rgba(148, 163, 184, 0.15)',
         // Modern dark theme with accent colors
         dark: {
           50: '#f8fafc',
