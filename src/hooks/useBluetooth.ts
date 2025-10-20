@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BluetoothDevice as AppBluetoothDevice, EnvironmentInfo } from '../types';
 import { UUIDS } from '../utils/bluetoothUtils';
+import { speedFromPower } from '../utils/metricsUtils';
 
 type DeviceKind = 'ftms' | 'cps' | 'hr';
 
@@ -73,6 +74,7 @@ export const useBluetooth = (): UseBluetoothResult => {
     Partial<Record<DeviceKind, BluetoothRemoteGATTCharacteristic>>
   >({});
   const notificationListeners = useRef<Partial<Record<DeviceKind, EventListener>>>({});
+  const cpsCrankDataRef = useRef<{ revolutions: number; eventTime: number } | null>(null);
 
   const updateStatus = useCallback((kind: DeviceKind, status: ConnectionStatus) => {
     setStatuses((prev) => ({ ...prev, [kind]: status }));
@@ -163,6 +165,10 @@ export const useBluetooth = (): UseBluetoothResult => {
     delete disconnectListeners.current[kind];
     delete characteristicRefs.current[kind];
     delete notificationListeners.current[kind];
+
+    if (kind === 'cps') {
+      cpsCrankDataRef.current = null;
+    }
 
     setConnectedDevices((prev) => {
       if (!(kind in prev)) {
