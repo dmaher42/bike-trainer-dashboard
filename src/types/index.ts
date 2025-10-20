@@ -56,7 +56,7 @@ export interface WorkoutPlan {
 
 export interface MetricProps {
   label: string;
-  value?: number;
+  value?: number | string | null;
   unit?: string;
   target?: number;
 }
