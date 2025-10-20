@@ -198,3 +198,5 @@ export const useWorkout = (options: UseWorkoutOptions = {}): UseWorkoutResult =>
     setPlan,
   };
 };
+
+export default useWorkout;
