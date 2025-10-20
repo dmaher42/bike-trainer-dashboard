@@ -33,10 +33,20 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Optional: SPA fallback so deep links work on GitHub Pages
+      - name: Add 404 fallback
+        run: |
+          if [ -f docs/index.html ]; then
+            cp docs/index.html docs/404.html
+          else
+            echo "docs/index.html not found; skipping 404.html fallback"
+            ls -la docs || true
+          fi
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: docs
 
   deploy:
     needs: build
