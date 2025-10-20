@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=/bike-trainer-dashboard/">
+<script>
+  // For client-side routers: rewrite to index.html while preserving the path
+  // so the app can handle it.
+  const base = "/bike-trainer-dashboard/";
+  const loc = window.location;
+  const target = base + (loc.pathname.replace(base, "") + loc.search + loc.hash);
+  window.location.replace(target);
+</script>
+
