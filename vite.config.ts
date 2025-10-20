@@ -1,11 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+const repoName = 'bike-trainer-dashboard';
+
+export default defineConfig(({ command }) => ({
   plugins: [react()],
-  base: '/bike-trainer-dashboard/',
+  base: command === 'build' ? `/${repoName}/` : '/',
   build: {
     outDir: 'docs',
     emptyOutDir: true,
   },
-});
+}));
