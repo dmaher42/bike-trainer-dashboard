@@ -31,3 +31,50 @@ export const PulseLoader: React.FC = () => {
     </div>
   );
 };
+
+export const ConnectionLoader: React.FC<{ deviceType: string }> = ({
+  deviceType,
+}) => {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-primary-500/10 border border-primary-500/20 rounded-xl">
+      <LoadingSpinner size="sm" />
+      <div className="text-sm text-primary-400">Connecting to {deviceType}...</div>
+    </div>
+  );
+};
+
+export const ConnectionSuccess: React.FC<{ deviceName: string }> = ({
+  deviceName,
+}) => {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-success-500/10 border border-success-500/20 rounded-xl animate-slide-up">
+      <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
+      <div className="text-sm text-success-400">Connected to {deviceName}</div>
+    </div>
+  );
+};
+
+export const ConnectionError: React.FC<{
+  error: string;
+  onRetry?: () => void;
+}> = ({
+  error,
+  onRetry,
+}) => {
+  return (
+    <div className="flex items-center justify-between p-3 bg-danger-500/10 border border-danger-500/20 rounded-xl">
+      <div className="flex items-center gap-3">
+        <div className="w-2 h-2 rounded-full bg-danger-400" />
+        <div className="text-sm text-danger-400">{error}</div>
+      </div>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="text-xs text-danger-400 hover:text-danger-300 underline"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+};
