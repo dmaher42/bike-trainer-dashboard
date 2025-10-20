@@ -13,6 +13,8 @@ import { useTrainerControl } from "./hooks/useTrainerControl";
 import { useRideHistory } from "./hooks/useRideHistory";
 import { ModernHeader } from "./components/ModernHeader";
 import { ModernNavigation } from "./components/ModernNavigation";
+import { ModernControls } from "./components/ModernControls";
+import { LoadingSpinner } from "./components/LoadingStates";
 
 function App() {
   type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
@@ -43,7 +45,7 @@ function App() {
   } = useRoute();
 
   const { environment: env, connectedDevices: devices } = useBluetooth();
-  const { isActive: activeWorkout, targetPower } = useWorkout();
+  const { isActive: activeWorkout, targetPower, targetCadence } = useWorkout();
   const { saveRide } = useRideHistory();
 
   const ftmsDevice = devices.ftms;
@@ -127,16 +129,6 @@ function App() {
               />
             </div>
 
-            <div className="mt-6 rounded-2xl overflow-hidden border border-glass-border bg-dark-900/40">
-              <VirtualMap route={route} metrics={metrics} onRouteClick={handleRouteClick} />
-            </div>
-
-            {status ? (
-              <p className="mt-4 text-sm text-success-400" role="status">
-                {status}
-              </p>
-            ) : null}
-
             {waypoints.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-dark-300">
                 <span>Waypoints: {waypoints.length}</span>
@@ -155,6 +147,52 @@ function App() {
             <p className="mt-4 text-sm text-dark-400">
               Tip: Load a .gpx file to follow a real-world route.
             </p>
+          </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1 space-y-6">
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
+                <Metric label="Cadence" value={metrics.cadence} unit="rpm" target={targetCadence} />
+                <Metric label="Speed" value={metrics.speed} unit="kph" />
+                <Metric label="Distance" value={metrics.distance} unit="km" />
+                <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
+                <Metric label="Elapsed" value={elapsed} unit="" />
+              </div>
+
+              {/* Controls */}
+              <div className="glass-card p-6">
+                <ModernControls
+                  rideOn={rideOn}
+                  onStartRide={handleStartRide}
+                  onStopRide={handleStopRide}
+                  onResetRide={handleResetRide}
+                  onExportCSV={() => downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)}
+                  samples={samples}
+                />
+              </div>
+
+              {/* Status */}
+              {status && (
+                <div className="glass-card p-4">
+                  <div className="flex items-center gap-3">
+                    <LoadingSpinner size="sm" />
+                    <span className="text-dark-300">{status}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Virtual Map */}
+            <div className="lg:col-span-2">
+              <VirtualMap
+                route={route}
+                metrics={metrics}
+                waypoints={waypoints}
+                onRouteClick={handleRouteClick}
+              />
+            </div>
           </section>
 
           {activeTab === "settings" && (
