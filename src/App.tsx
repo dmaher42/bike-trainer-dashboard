@@ -207,10 +207,25 @@ const App: React.FC = () => {
   }, [isSimulating, isSimulatorEnabled]);
 
   useEffect(() => {
-    if (autoPauseOnAnalysis && activeTab === "analysis" && isRunning) {
+    if (!autoPauseOnAnalysis || activeTab !== "analysis") {
+      return;
+    }
+
+    if (isRunning) {
       stopRideMetrics();
     }
-  }, [activeTab, autoPauseOnAnalysis, isRunning, stopRideMetrics]);
+
+    if (isWorkoutActive) {
+      stopWorkout();
+    }
+  }, [
+    activeTab,
+    autoPauseOnAnalysis,
+    isRunning,
+    isWorkoutActive,
+    stopRideMetrics,
+    stopWorkout,
+  ]);
 
   useEffect(() => {
     if (isScanning) {
