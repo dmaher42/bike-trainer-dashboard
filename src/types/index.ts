@@ -12,9 +12,14 @@ export interface Metrics {
   hr: number;
 }
 
-export interface Sample extends Metrics {
-  timestamp: number;
+export interface Sample {
+  ts: number;
   elapsed: number;
+  power: number;
+  cadence: number;
+  speed: number;
+  distance: number;
+  hr: number;
 }
 
 export interface RoutePoint {
@@ -31,30 +36,27 @@ export interface Route {
 }
 
 export interface EnvironmentInfo {
-  supportsBluetooth: boolean;
-  bluetoothAvailable: boolean;
-  bluetoothEnabled: boolean;
-}
-
-export interface WorkoutInterval {
-  duration: number;
-  targetPower: number;
+  isTopLevel: boolean | null;
+  isSecure: boolean | null;
+  hasBT: boolean | null;
+  policy: boolean | null;
+  availability: boolean | null;
+  canUse: boolean | null;
 }
 
 export interface WorkoutPlan {
   id: string;
   name: string;
-  intervals: WorkoutInterval[];
+  intervals: {
+    duration: number;
+    power: number;
+    cadence?: number;
+  }[];
 }
 
 export interface MetricProps {
   label: string;
-  value: number | string;
+  value?: number;
   unit?: string;
-}
-
-export interface LessonActivitiesWeek {
-  week: number;
-  activities: string[];
-  notes?: string;
+  target?: number;
 }
