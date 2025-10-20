@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-interface ConnectionState {
+export interface ConnectionState {
   isConnecting: {
     ftms?: boolean;
     cps?: boolean;
