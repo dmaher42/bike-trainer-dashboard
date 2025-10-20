@@ -137,42 +137,145 @@ export function interpRoute(route: Route, fraction: number): RoutePoint {
  * Parses GPX XML content and converts it into a {@link Route}.
  */
 export function parseGPX(gpxXml: string): Route {
-  if (!gpxXml.trim()) {
-    throw new Error("GPX content is empty");
-  }
+  try {
+    console.log("Starting GPX parsing...");
 
-  const nameMatch = gpxXml.match(/<name>([^<]+)<\/name>/i);
-  const name = nameMatch?.[1]?.trim();
-
-  const trkptRegex = /<trkpt[^>]*lat="([^"]+)"[^>]*lon="([^"]+)"[^>]*>([\s\S]*?)<\/trkpt>/gi;
-  const eleRegex = /<ele>([^<]+)<\/ele>/i;
-
-  const pts: RoutePoint[] = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = trkptRegex.exec(gpxXml)) !== null) {
-    const lat = parseFloat(match[1]);
-    const lon = parseFloat(match[2]);
-
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      continue;
+    if (!gpxXml || typeof gpxXml !== "string" || !gpxXml.trim()) {
+      throw new Error("Invalid GPX data: Empty or not a string");
     }
 
-    const inner = match[3];
-    const eleMatch = inner.match(eleRegex);
-    const elevation = eleMatch ? parseFloat(eleMatch[1]) : undefined;
+    if (!gpxXml.includes("<gpx") || !gpxXml.includes("</gpx>")) {
+      throw new Error("Invalid GPX format: Missing GPX tags");
+    }
 
-    pts.push({
-      // Treat longitude as x and latitude as y for planar representation.
-      x: lon,
-      y: lat,
-      elevation: Number.isFinite(elevation) ? elevation : undefined,
+    const parser = new DOMParser();
+    const gpx = parser.parseFromString(gpxXml, "text/xml");
+
+    const parserError = gpx.querySelector("parsererror");
+    if (parserError) {
+      throw new Error("XML parsing error: Invalid XML format");
+    }
+
+    let trackPoints = gpx.querySelectorAll("trkpt");
+    if (trackPoints.length === 0) {
+      trackPoints = gpx.querySelectorAll("wpt");
+    }
+    if (trackPoints.length === 0) {
+      trackPoints = gpx.querySelectorAll("rtept");
+    }
+
+    if (trackPoints.length === 0) {
+      throw new Error("No track points found in GPX file");
+    }
+
+    console.log(`Found ${trackPoints.length} track points`);
+
+    const pts: RoutePoint[] = [];
+    let minLat = 90;
+    let maxLat = -90;
+    let minLon = 180;
+    let maxLon = -180;
+    let hasElevation = false;
+
+    trackPoints.forEach((point) => {
+      const lat = parseFloat(point.getAttribute("lat") ?? "NaN");
+      const lon = parseFloat(point.getAttribute("lon") ?? "NaN");
+      const ele = point.querySelector("ele")?.textContent ?? undefined;
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        console.warn("Invalid coordinates found, skipping point");
+        return;
+      }
+
+      minLat = Math.min(minLat, lat);
+      maxLat = Math.max(maxLat, lat);
+      minLon = Math.min(minLon, lon);
+      maxLon = Math.max(maxLon, lon);
+
+      if (ele !== undefined) {
+        hasElevation = true;
+      }
     });
-  }
 
-  if (pts.length < 2) {
-    throw new Error("GPX file must contain at least two track points");
-  }
+    if (minLat === 90 && maxLat === -90 && minLon === 180 && maxLon === -180) {
+      throw new Error("No valid coordinates found in GPX file");
+    }
 
-  return computeRouteMetrics(pts, name ?? "GPX Route");
+    const latRange = maxLat - minLat || 1;
+    const lonRange = maxLon - minLon || 1;
+    const latPadding = latRange * 0.05;
+    const lonPadding = lonRange * 0.05;
+    const paddedMinLat = minLat - latPadding;
+    const paddedMaxLat = maxLat + latPadding;
+    const paddedMinLon = minLon - lonPadding;
+    const paddedMaxLon = maxLon + lonPadding;
+
+    console.log(
+      `Bounds: lat[${paddedMinLat.toFixed(6)}, ${paddedMaxLat.toFixed(
+        6,
+      )}] lon[${paddedMinLon.toFixed(6)}, ${paddedMaxLon.toFixed(6)}]`,
+    );
+
+    trackPoints.forEach((point, index) => {
+      const lat = parseFloat(point.getAttribute("lat") ?? "NaN");
+      const lon = parseFloat(point.getAttribute("lon") ?? "NaN");
+      const ele = point.querySelector("ele")?.textContent ?? undefined;
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        console.warn(`Skipping invalid point at index ${index}`);
+        return;
+      }
+
+      const x = (lon - paddedMinLon) / (paddedMaxLon - paddedMinLon || 1);
+      const y = 1 - (lat - paddedMinLat) / (paddedMaxLat - paddedMinLat || 1);
+
+      pts.push({
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+        elevation:
+          ele && hasElevation && Number.isFinite(parseFloat(ele))
+            ? parseFloat(ele)
+            : undefined,
+      });
+    });
+
+    if (pts.length === 0) {
+      throw new Error("No valid points could be extracted from GPX file");
+    }
+
+    if (pts.length < 2) {
+      throw new Error("GPX file must contain at least two valid points");
+    }
+
+    console.log(`Extracted ${pts.length} valid points`);
+
+    const nameElements = [
+      gpx.querySelector("trk > name"),
+      gpx.querySelector("name"),
+      gpx.querySelector("metadata > name"),
+    ];
+
+    let routeName: string | undefined;
+    for (const nameEl of nameElements) {
+      if (nameEl?.textContent) {
+        routeName = nameEl.textContent.trim();
+        break;
+      }
+    }
+
+    const route = computeRouteMetrics(pts, routeName ?? "GPX Route");
+
+    console.log(
+      `Route "${route.name ?? "Unnamed"}" parsed successfully: ${route.pts.length} points, ${route.total.toFixed(
+        2,
+      )} total distance`,
+    );
+
+    return route;
+  } catch (error) {
+    console.error("Error parsing GPX:", error);
+    throw error instanceof Error
+      ? error
+      : new Error("An unknown error occurred while parsing GPX");
+  }
 }
