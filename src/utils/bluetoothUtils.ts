@@ -134,15 +134,23 @@ export const detectBluetoothSupport = async (): Promise<EnvironmentInfo> => {
 };
 
 export const reasonFromEnv = (env: EnvironmentInfo): string | null => {
-  if (!env.supportsBluetooth) {
-    return "This browser does not expose the Web Bluetooth API or it is blocked by policy.";
+  if (env.policy === false) {
+    return "Bluetooth access is blocked by the current Permissions Policy.";
   }
 
-  if (!env.bluetoothAvailable) {
+  if (env.isSecure === false) {
+    return "Bluetooth connections require a secure (HTTPS) context.";
+  }
+
+  if (env.hasBT === false || !env.supportsBluetooth) {
+    return "This browser does not expose the Web Bluetooth API or it is blocked.";
+  }
+
+  if (env.availability === false || env.bluetoothAvailable === false) {
     return "Bluetooth hardware is unavailable or disabled on this device.";
   }
 
-  if (!env.bluetoothEnabled) {
+  if (env.bluetoothEnabled === false) {
     return "Bluetooth appears to be turned off or permission was denied.";
   }
 

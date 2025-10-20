@@ -4,7 +4,7 @@ import { LoadingSpinner } from './LoadingStates';
 
 interface BluetoothStatusDisplayProps {
   env: EnvironmentInfo;
-  devices: Record<string, BluetoothDevice>;
+  devices: Partial<Record<string, BluetoothDevice>>;
   onRefresh: () => void;
   isRefreshing?: boolean;
 }
