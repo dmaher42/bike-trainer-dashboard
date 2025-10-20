@@ -359,32 +359,33 @@ export const useBluetooth = (): UseBluetoothResult => {
     updateStatus,
     setEnvironment,
   ]);
-  const connectCPS = useCallback(async () => {
+  const connectCPS = useCallback(() => connectDevice('cps'), [connectDevice]);
+  const connectHR = useCallback(async () => {
     const nav = typeof navigator === 'undefined' ? undefined : navigator;
     if (!isNavigatorWithBluetooth(nav)) {
-      setError('cps', 'This environment does not support Web Bluetooth.');
-      updateStatus('cps', 'error');
+      setError('hr', 'This environment does not support Web Bluetooth.');
+      updateStatus('hr', 'error');
       return;
     }
 
-    updateStatus('cps', 'requesting');
-    clearError('cps');
+    updateStatus('hr', 'requesting');
+    clearError('hr');
 
     const { bluetooth } = nav;
 
     try {
       const device = await bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUIDS.cps] }],
-        optionalServices: [SERVICE_UUIDS.cps],
+        filters: [{ services: [SERVICE_UUIDS.hr] }],
+        optionalServices: [SERVICE_UUIDS.hr],
       });
 
-      updateStatus('cps', 'connecting');
+      updateStatus('hr', 'connecting');
 
-      deviceRefs.current.cps = device;
+      deviceRefs.current.hr = device;
 
-      const onDisconnected = handleDisconnection('cps');
+      const onDisconnected = handleDisconnection('hr');
       device.addEventListener('gattserverdisconnected', onDisconnected);
-      disconnectListeners.current.cps = onDisconnected;
+      disconnectListeners.current.hr = onDisconnected;
 
       if (!device.gatt) {
         throw new Error('Device does not support GATT.');
@@ -395,10 +396,8 @@ export const useBluetooth = (): UseBluetoothResult => {
         throw new Error('Failed to establish a GATT connection.');
       }
 
-      const service = await server.getPrimaryService(SERVICE_UUIDS.cps);
-      const characteristic = await service.getCharacteristic(UUIDS.CYCLING_POWER_MEASUREMENT);
-
-      cpsCrankDataRef.current = null;
+      const service = await server.getPrimaryService(SERVICE_UUIDS.hr);
+      const characteristic = await service.getCharacteristic(UUIDS.HEART_RATE_MEASUREMENT);
 
       const handleNotification: EventListener = (event) => {
         const target = event.target as BluetoothRemoteGATTCharacteristic | null;
@@ -408,68 +407,34 @@ export const useBluetooth = (): UseBluetoothResult => {
         }
 
         let offset = 0;
-        const flags = value.getUint16(offset, true);
-        offset += 2;
-
-        const power = value.getInt16(offset, true);
-        offset += 2;
-
-        let cadence: number | undefined;
-
-        if (flags & 0x0008) {
-          const revolutions = value.getUint16(offset, true);
-          offset += 2;
-          const eventTime = value.getUint16(offset, true);
-          offset += 2;
-
-          const previous = cpsCrankDataRef.current;
-          cpsCrankDataRef.current = { revolutions, eventTime };
-
-          if (previous) {
-            const revolutionDiff = (revolutions - previous.revolutions + 0x10000) % 0x10000;
-            const timeDiff = (eventTime - previous.eventTime + 0x10000) % 0x10000;
-
-            if (revolutionDiff > 0 && timeDiff > 0) {
-              const seconds = timeDiff / 1024;
-              const cadenceRpm = (revolutionDiff / seconds) * 60;
-              if (Number.isFinite(cadenceRpm)) {
-                cadence = Math.max(0, Math.min(200, cadenceRpm));
-              }
-            }
-          }
-        } else {
-          cpsCrankDataRef.current = null;
-        }
-
-        const speed = speedFromPower(power);
+        const flags = value.getUint8(offset);
+        offset += 1;
+        const is16Bit = (flags & 0x01) !== 0;
+        const heartRate = is16Bit ? value.getUint16(offset, true) : value.getUint8(offset);
 
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
           window.dispatchEvent(
-            new CustomEvent('cps-data', {
-              detail: {
-                power,
-                cadence,
-                speed,
-              },
+            new CustomEvent('hr-data', {
+              detail: { hr: heartRate },
             }),
           );
         }
       };
 
       characteristic.addEventListener('characteristicvaluechanged', handleNotification);
-      notificationListeners.current.cps = handleNotification;
-      characteristicRefs.current.cps = characteristic;
+      notificationListeners.current.hr = handleNotification;
+      characteristicRefs.current.hr = characteristic;
 
       await characteristic.startNotifications();
 
-      updateStatus('cps', 'connected');
+      updateStatus('hr', 'connected');
       setEnvironment((prev) => ({ ...prev, bluetoothEnabled: true }));
-      setConnectedDevices((prev) => ({ ...prev, cps: createAppDevice(device) }));
+      setConnectedDevices((prev) => ({ ...prev, hr: createAppDevice(device) }));
     } catch (error) {
-      console.error('Failed to connect to CPS device', error);
-      setError('cps', error instanceof Error ? error.message : 'Failed to connect to device.');
-      updateStatus('cps', 'error');
-      cleanupDevice('cps', { resetStatus: false, clearError: false });
+      console.error('Failed to connect to HR device', error);
+      setError('hr', error instanceof Error ? error.message : 'Failed to connect to device.');
+      updateStatus('hr', 'error');
+      cleanupDevice('hr', { resetStatus: false, clearError: false });
     }
   }, [
     clearError,
@@ -479,7 +444,6 @@ export const useBluetooth = (): UseBluetoothResult => {
     updateStatus,
     setEnvironment,
   ]);
-  const connectHR = useCallback(() => connectDevice('hr'), [connectDevice]);
 
   useEffect(() => {
     void refreshEnvironment();
