@@ -11,8 +11,9 @@ const INITIAL_METRICS: Metrics = {
 };
 
 const formatElapsed = (totalSeconds: number) => {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.floor(totalSeconds % 60);
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes % 60;
   if (hours > 0) {
@@ -23,12 +24,16 @@ const formatElapsed = (totalSeconds: number) => {
   return `${remMinutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
-const computeSimulatedMetrics = (elapsedSeconds: number, previous: Metrics): Metrics => {
+const computeSimulatedMetrics = (
+  elapsedSeconds: number,
+  previous: Metrics,
+  deltaSeconds: number,
+): Metrics => {
   const power = 200 + 40 * Math.sin(elapsedSeconds / 8) + (Math.random() - 0.5) * 20;
   const cadence = 90 + 5 * Math.sin((elapsedSeconds + 3) / 6) + (Math.random() - 0.5) * 5;
   const speed = 32 + 4 * Math.sin((elapsedSeconds + 1) / 7) + (Math.random() - 0.5) * 2;
   const hr = 150 + 8 * Math.sin((elapsedSeconds + 2) / 10) + (Math.random() - 0.5) * 6;
-  const distance = previous.distance + Math.max(speed, 0) / 3600;
+  const distance = previous.distance + (Math.max(speed, 0) * deltaSeconds) / 3600;
 
   return {
     power: Math.max(power, 0),
@@ -57,6 +62,9 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
   const metricsRef = useRef<Metrics>(INITIAL_METRICS);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
+  const lastTickRef = useRef<number | null>(null);
+
+  const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
   useEffect(() => {
     metricsRef.current = metrics;
@@ -78,12 +86,17 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
     }
 
     intervalRef.current = setInterval(() => {
-      const nextElapsed = elapsedRef.current + 1;
+      const now = nowMs();
+      const lastTick = lastTickRef.current ?? now;
+      const deltaSeconds = Math.max(0, (now - lastTick) / 1000);
+      lastTickRef.current = now;
+
+      const nextElapsed = elapsedRef.current + deltaSeconds;
       elapsedRef.current = nextElapsed;
       setElapsedSeconds(nextElapsed);
 
       const nextMetrics = simulate
-        ? computeSimulatedMetrics(nextElapsed, metricsRef.current)
+        ? computeSimulatedMetrics(nextElapsed, metricsRef.current, deltaSeconds)
         : metricsRef.current;
 
       metricsRef.current = nextMetrics;
@@ -103,6 +116,7 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      lastTickRef.current = null;
     };
   }, [isRunning, simulate]);
 
@@ -111,6 +125,7 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
+      lastTickRef.current = null;
     };
   }, []);
 
@@ -118,6 +133,7 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
     if (isRunning) {
       return false;
     }
+    lastTickRef.current = nowMs();
     setIsRunning(true);
     return true;
   };
@@ -137,6 +153,7 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
     metricsRef.current = INITIAL_METRICS;
     setMetrics(INITIAL_METRICS);
     setSamples([]);
+    lastTickRef.current = null;
     return true;
   };
 
