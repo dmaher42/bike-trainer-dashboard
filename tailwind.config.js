@@ -72,6 +72,7 @@ module.exports = {
           900: '#7f1d1d',
           950: '#450a0a',
         },
+        border: 'rgba(148, 163, 184, 0.2)',
         // Glass morphism colors
         glass: {
           light: 'rgba(255, 255, 255, 0.05)',
