@@ -140,4 +140,6 @@ const Metric: React.FC<MetricProps> = ({
   );
 };
 
+export { Metric };
+
 export default Metric;

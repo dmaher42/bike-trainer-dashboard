@@ -1,90 +1,146 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { Metrics, Sample } from "../types";
-import { speedFromPower } from "../utils/metricsUtils";
 
-export function useMetrics(sim: boolean, rideOn: boolean) {
-  const [metrics, setMetrics] = useState<Metrics>({
-    power: 0,
-    cadence: 0,
-    speed: 0,
-    distance: 0,
-    hr: 0,
-  });
+const INITIAL_METRICS: Metrics = {
+  power: 0,
+  cadence: 0,
+  speed: 0,
+  distance: 0,
+  hr: 0,
+};
+
+const formatElapsed = (totalSeconds: number) => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (hours > 0) {
+    return `${hours}:${remMinutes.toString().padStart(2, "0")}:${seconds
+      .toString()
+      .padStart(2, "0")}`;
+  }
+  return `${remMinutes}:${seconds.toString().padStart(2, "0")}`;
+};
+
+const computeSimulatedMetrics = (elapsedSeconds: number, previous: Metrics): Metrics => {
+  const power = 200 + 40 * Math.sin(elapsedSeconds / 8) + (Math.random() - 0.5) * 20;
+  const cadence = 90 + 5 * Math.sin((elapsedSeconds + 3) / 6) + (Math.random() - 0.5) * 5;
+  const speed = 32 + 4 * Math.sin((elapsedSeconds + 1) / 7) + (Math.random() - 0.5) * 2;
+  const hr = 150 + 8 * Math.sin((elapsedSeconds + 2) / 10) + (Math.random() - 0.5) * 6;
+  const distance = previous.distance + Math.max(speed, 0) / 3600;
+
+  return {
+    power: Math.max(power, 0),
+    cadence: Math.max(cadence, 0),
+    speed: Math.max(speed, 0),
+    distance,
+    hr: Math.max(hr, 0),
+  };
+};
+
+export interface UseMetricsResult {
+  metrics: Metrics;
+  samples: Sample[];
+  elapsed: string;
+  startRide: () => boolean;
+  stopRide: () => boolean;
+  resetRide: () => boolean;
+}
+
+export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult => {
+  const [metrics, setMetrics] = useState<Metrics>(INITIAL_METRICS);
   const [samples, setSamples] = useState<Sample[]>([]);
-  const [startTs, setStartTs] = useState<number | null>(null);
-  const lastUpdateRef = useRef<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+
+  const metricsRef = useRef<Metrics>(INITIAL_METRICS);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedRef = useRef(0);
 
   useEffect(() => {
-    let rafId: number;
-    function tick(ts: number) {
-      if (!lastUpdateRef.current) lastUpdateRef.current = ts;
-      const dt = (ts - lastUpdateRef.current) / 1000;
-      lastUpdateRef.current = ts;
+    metricsRef.current = metrics;
+  }, [metrics]);
 
-      if (rideOn) {
-        setMetrics((m) => {
-          const speed = m.speed || (sim ? speedFromPower(m.power) : 0);
-          const distance = m.distance + (speed * dt) / 3600;
-          return { ...m, distance };
-        });
-        setSamples((arr) => {
-          const now = Date.now();
-          const elapsed = startTs ? (now - startTs) / 1000 : 0;
-          const m = metrics;
-          const row: Sample = {
-            ts: now,
-            elapsed,
-            power: m.power,
-            cadence: m.cadence,
-            speed: m.speed,
-            distance: m.distance,
-            hr: m.hr,
-          };
-          if (arr.length === 0 || now - arr[arr.length - 1].ts > 500) {
-            return [...arr, row];
-          }
-          return arr;
-        });
-      }
-      rafId = requestAnimationFrame(tick);
+  useEffect(() => {
+    if (!rideOn && isRunning) {
+      setIsRunning(false);
     }
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [rideOn, startTs, sim, metrics]);
+  }, [rideOn, isRunning]);
 
   useEffect(() => {
-    if (!sim) return;
-    let id = setInterval(() => {
-      if (!rideOn) return;
-      setMetrics((m) => {
-        const t = (Date.now() / 1000) % 1000;
-        const power = 180 + 40 * Math.sin(t * 0.4) + 20 * Math.cos(t * 0.9);
-        const cadence = 85 + 5 * Math.sin(t * 0.7);
-        const speed = speedFromPower(power);
-        const hr = 120 + Math.round(15 * Math.sin(t * 0.2));
-        return { ...m, power, cadence, speed, hr };
-      });
-    }, 250);
-    return () => clearInterval(id);
-  }, [sim, rideOn]);
+    if (!isRunning) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
 
-  const startRide = useCallback(() => {
-    if (!startTs) setStartTs(Date.now());
-    return true;
-  }, [startTs]);
+    intervalRef.current = setInterval(() => {
+      const nextElapsed = elapsedRef.current + 1;
+      elapsedRef.current = nextElapsed;
+      setElapsedSeconds(nextElapsed);
 
-  const stopRide = useCallback(() => {
-    return true;
+      const nextMetrics = simulate
+        ? computeSimulatedMetrics(nextElapsed, metricsRef.current)
+        : metricsRef.current;
+
+      metricsRef.current = nextMetrics;
+      setMetrics(nextMetrics);
+
+      const sample: Sample = {
+        ts: Date.now(),
+        elapsed: nextElapsed,
+        ...nextMetrics,
+      };
+
+      setSamples((prev) => [...prev, sample]);
+    }, 1000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isRunning, simulate]);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
   }, []);
 
-  const resetRide = useCallback(() => {
-    setStartTs(null);
+  const startRide = () => {
+    if (isRunning) {
+      return false;
+    }
+    setIsRunning(true);
+    return true;
+  };
+
+  const stopRide = () => {
+    if (!isRunning) {
+      return false;
+    }
+    setIsRunning(false);
+    return true;
+  };
+
+  const resetRide = () => {
+    setIsRunning(false);
+    elapsedRef.current = 0;
+    setElapsedSeconds(0);
+    metricsRef.current = INITIAL_METRICS;
+    setMetrics(INITIAL_METRICS);
     setSamples([]);
-    setMetrics({ power: 0, cadence: 0, speed: 0, distance: 0, hr: 0 });
     return true;
-  }, []);
+  };
 
-  const elapsed = startTs ? (Date.now() - startTs) / 1000 : 0;
+  const elapsed = useMemo(() => formatElapsed(elapsedSeconds), [elapsedSeconds]);
 
   return {
     metrics,
