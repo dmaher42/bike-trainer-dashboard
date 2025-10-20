@@ -6,6 +6,19 @@
     <title>Bike Trainer Dashboard</title>
   </head>
   <body>
+    <script>
+      const isLocalhost =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+
+      if (!isLocalhost && !window.location.pathname.includes('/docs/')) {
+        const basePath = window.location.pathname.endsWith('/')
+          ? window.location.pathname
+          : `${window.location.pathname}/`;
+
+        window.location.replace(`${basePath}docs/`);
+      }
+    </script>
     <div id="root"></div>
     <script type="module" src="./src/index.tsx"></script>
   </body>
