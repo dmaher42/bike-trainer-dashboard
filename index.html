@@ -7,6 +7,32 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function restoreSpaPath() {
+        const storageKey = "spa-fallback-path";
+        let storedPath = null;
+
+        try {
+          storedPath = window.sessionStorage.getItem(storageKey);
+          if (storedPath) {
+            window.sessionStorage.removeItem(storageKey);
+          }
+        } catch (error) {
+          storedPath = null;
+        }
+
+        if (!storedPath) {
+          return;
+        }
+
+        const current = window.location.pathname + window.location.search + window.location.hash;
+        if (current === storedPath) {
+          return;
+        }
+
+        window.history.replaceState(null, "", storedPath);
+      })();
+    </script>
     <script type="module" src="./src/index.tsx"></script>
   </body>
 </html>
