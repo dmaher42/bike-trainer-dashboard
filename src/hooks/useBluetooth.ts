@@ -354,7 +354,90 @@ export const useBluetooth = (): UseBluetoothResult => {
     setEnvironment,
   ]);
   const connectCPS = useCallback(() => connectDevice('cps'), [connectDevice]);
-  const connectHR = useCallback(() => connectDevice('hr'), [connectDevice]);
+  const connectHR = useCallback(async () => {
+    const nav = typeof navigator === 'undefined' ? undefined : navigator;
+    if (!isNavigatorWithBluetooth(nav)) {
+      setError('hr', 'This environment does not support Web Bluetooth.');
+      updateStatus('hr', 'error');
+      return;
+    }
+
+    updateStatus('hr', 'requesting');
+    clearError('hr');
+
+    const { bluetooth } = nav;
+
+    try {
+      const device = await bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUIDS.hr] }],
+        optionalServices: [SERVICE_UUIDS.hr],
+      });
+
+      updateStatus('hr', 'connecting');
+
+      deviceRefs.current.hr = device;
+
+      const onDisconnected = handleDisconnection('hr');
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      disconnectListeners.current.hr = onDisconnected;
+
+      if (!device.gatt) {
+        throw new Error('Device does not support GATT.');
+      }
+
+      const server = await device.gatt.connect();
+      if (!server.connected) {
+        throw new Error('Failed to establish a GATT connection.');
+      }
+
+      const service = await server.getPrimaryService(SERVICE_UUIDS.hr);
+      const characteristic = await service.getCharacteristic(UUIDS.HEART_RATE_MEASUREMENT);
+
+      const handleNotification: EventListener = (event) => {
+        const target = event.target as BluetoothRemoteGATTCharacteristic | null;
+        const value = target?.value;
+        if (!value) {
+          return;
+        }
+
+        let offset = 0;
+        const flags = value.getUint8(offset);
+        offset += 1;
+        const is16Bit = (flags & 0x01) !== 0;
+        const heartRate = is16Bit ? value.getUint16(offset, true) : value.getUint8(offset);
+
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(
+            new CustomEvent('hr-data', {
+              detail: { hr: heartRate },
+            }),
+          );
+        }
+      };
+
+      characteristic.addEventListener('characteristicvaluechanged', handleNotification);
+      notificationListeners.current.hr = handleNotification;
+      characteristicRefs.current.hr = characteristic;
+
+      await characteristic.startNotifications();
+
+      updateStatus('hr', 'connected');
+      setEnvironment((prev) => ({ ...prev, bluetoothEnabled: true }));
+      setConnectedDevices((prev) => ({ ...prev, hr: createAppDevice(device) }));
+    } catch (error) {
+      console.error('Failed to connect to HR device', error);
+      setError('hr', error instanceof Error ? error.message : 'Failed to connect to device.');
+      updateStatus('hr', 'error');
+      cleanupDevice('hr', { resetStatus: false, clearError: false });
+    }
+  }, [
+    clearError,
+    cleanupDevice,
+    handleDisconnection,
+    setError,
+    updateStatus,
+    setEnvironment,
+  ]);
 
   useEffect(() => {
     void refreshEnvironment();
