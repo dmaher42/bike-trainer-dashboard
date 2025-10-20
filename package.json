@@ -13,7 +13,7 @@
     "postbuild": "node scripts/postbuild.mjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "deploy": "npm run build && gh-pages -d docs"
+    "deploy": "npm run build && gh-pages -d docs --dotfiles"
   },
   "dependencies": {
     "react": "^18.2.0",
