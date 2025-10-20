@@ -2,51 +2,61 @@ import React, { useMemo, useState } from 'react';
 import { BluetoothDevice, EnvironmentInfo } from '../types';
 import { LoadingSpinner } from './LoadingStates';
 
-type DeviceKind = 'ftms' | 'cps' | 'hr';
+type DeviceKey = 'ftms' | 'cps' | 'hr';
 
-const DEVICE_LABELS: Record<DeviceKind, string> = {
-  ftms: 'Smart Trainer',
-  cps: 'Power Meter',
-  hr: 'Heart Rate Monitor',
-};
+type DeviceMap = Partial<Record<DeviceKey, BluetoothDevice>>;
 
-const DEVICE_DESCRIPTIONS: Record<DeviceKind, string> = {
-  ftms: 'Controls resistance and provides power/cadence/speed data',
-  cps: 'Provides accurate power and cadence data',
-  hr: 'Provides real-time heart rate data',
-};
-
-const DEVICE_ICONS: Record<DeviceKind, string> = {
-  ftms: '🚴',
-  cps: '⚡',
-  hr: '❤️',
-};
-
-const DEVICE_COLORS: Record<DeviceKind, 'primary' | 'warning' | 'danger'> = {
-  ftms: 'primary',
-  cps: 'warning',
-  hr: 'danger',
+type DeviceState = {
+  key: DeviceKey;
+  name: string;
+  description: string;
+  icon: string;
+  color: 'primary' | 'warning' | 'danger';
+  connect: () => void;
+  isConnecting: boolean;
+  device?: BluetoothDevice;
 };
 
 interface BluetoothConnectPanelProps {
   env: EnvironmentInfo;
-  devices: Partial<Record<DeviceKind, BluetoothDevice>>;
-  status?: string | null;
+  devices: DeviceMap;
+  status?: string;
   onConnectFTMS: () => void;
   onConnectCPS: () => void;
   onConnectHR: () => void;
-  onDisconnectDevice: (kind: DeviceKind) => void;
-  onDisconnectAll: () => void;
   onRefreshEnv: () => void;
   onShowFix: () => void;
-  isConnecting?: Partial<Record<DeviceKind, boolean>>;
-  errors?: Partial<Record<DeviceKind, string>>;
+  onDisconnectDevice?: (key: DeviceKey) => void;
+  onDisconnectAll?: () => void;
+  isConnecting?: Partial<Record<DeviceKey, boolean>>;
 }
 
-const isDeviceConnected = (device?: BluetoothDevice): boolean => Boolean(device?.connected);
+const getStatusBadge = (device: BluetoothDevice | undefined, isConnecting: boolean) => {
+  if (isConnecting) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-primary-400">
+        <LoadingSpinner size="sm" />
+        Connecting...
+      </div>
+    );
+  }
 
-const formatKey = (key: DeviceKind): string =>
-  key.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
+  if (device?.connected) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-success-400">
+        <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
+        Connected
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-dark-500">
+      <div className="w-2 h-2 rounded-full bg-dark-600" />
+      Disconnected
+    </div>
+  );
+};
 
 export const BluetoothConnectPanel: React.FC<BluetoothConnectPanelProps> = ({
   env,
@@ -55,59 +65,68 @@ export const BluetoothConnectPanel: React.FC<BluetoothConnectPanelProps> = ({
   onConnectFTMS,
   onConnectCPS,
   onConnectHR,
-  onDisconnectDevice,
-  onDisconnectAll,
   onRefreshEnv,
   onShowFix,
+  onDisconnectDevice,
+  onDisconnectAll,
   isConnecting = {},
-  errors = {},
 }) => {
-  const [expandedDevice, setExpandedDevice] = useState<DeviceKind | null>(null);
+  const [expandedDevice, setExpandedDevice] = useState<DeviceKey | null>(null);
 
-  const canUseBluetooth = env.canUse !== false;
-
-  const deviceTypes = useMemo(
-    () =>
-      (['ftms', 'cps', 'hr'] as DeviceKind[]).map((key) => ({
-        key,
-        name: DEVICE_LABELS[key],
-        description: DEVICE_DESCRIPTIONS[key],
-        icon: DEVICE_ICONS[key],
-        color: DEVICE_COLORS[key],
-        connect:
-          key === 'ftms' ? onConnectFTMS : key === 'cps' ? onConnectCPS : onConnectHR,
-        isConnecting: Boolean(isConnecting[key]),
-        device: devices[key],
-        error: errors[key],
-      })),
-    [devices, errors, isConnecting, onConnectCPS, onConnectFTMS, onConnectHR],
+  const deviceStates = useMemo<DeviceState[]>(
+    () => [
+      {
+        key: 'ftms',
+        name: 'Smart Trainer',
+        description: 'Controls resistance and provides power/cadence/speed data',
+        icon: '🚴',
+        color: 'primary',
+        connect: onConnectFTMS,
+        isConnecting: Boolean(isConnecting.ftms),
+        device: devices.ftms,
+      },
+      {
+        key: 'cps',
+        name: 'Power Meter',
+        description: 'Provides accurate power and cadence data',
+        icon: '⚡',
+        color: 'warning',
+        connect: onConnectCPS,
+        isConnecting: Boolean(isConnecting.cps),
+        device: devices.cps,
+      },
+      {
+        key: 'hr',
+        name: 'Heart Rate Monitor',
+        description: 'Provides real-time heart rate data',
+        icon: '❤️',
+        color: 'danger',
+        connect: onConnectHR,
+        isConnecting: Boolean(isConnecting.hr),
+        device: devices.hr,
+      },
+    ],
+    [devices, isConnecting, onConnectCPS, onConnectFTMS, onConnectHR],
   );
 
-  const getStatusBadge = (device: BluetoothDevice | undefined, connecting: boolean) => {
-    if (connecting) {
-      return (
-        <div className="flex items-center gap-2 text-xs text-primary-400">
-          <LoadingSpinner size="sm" />
-          Connecting...
-        </div>
-      );
+  const canUseBluetooth = env.canUse ?? false;
+
+  const handleDisconnectAll = () => {
+    if (onDisconnectAll) {
+      onDisconnectAll();
+      return;
     }
 
-    if (isDeviceConnected(device)) {
-      return (
-        <div className="flex items-center gap-2 text-xs text-success-400">
-          <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
-          Connected
-        </div>
-      );
+    if (!onDisconnectDevice) {
+      return;
     }
 
-    return (
-      <div className="flex items-center gap-2 text-xs text-dark-500">
-        <div className="w-2 h-2 rounded-full bg-dark-600" />
-        Disconnected
-      </div>
-    );
+    (Object.keys(devices) as DeviceKey[]).forEach((key) => {
+      const device = devices[key];
+      if (device?.connected) {
+        onDisconnectDevice(key);
+      }
+    });
   };
 
   return (
@@ -115,10 +134,12 @@ export const BluetoothConnectPanel: React.FC<BluetoothConnectPanelProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-dark-200">Device Connections</h3>
-          <p className="text-sm text-dark-400 mt-1">Connect your Bluetooth devices to start tracking metrics</p>
+          <p className="text-sm text-dark-400 mt-1">
+            Connect your Bluetooth devices to start tracking metrics
+          </p>
         </div>
 
-        {env.canUse === false && (
+        {!canUseBluetooth && (
           <button onClick={onShowFix} className="btn-warning text-sm">
             Fix Bluetooth
           </button>
@@ -126,104 +147,111 @@ export const BluetoothConnectPanel: React.FC<BluetoothConnectPanelProps> = ({
       </div>
 
       <div className="space-y-4">
-        {deviceTypes.map((deviceType) => {
-          const connected = isDeviceConnected(deviceType.device);
-          const shouldDisable = deviceType.isConnecting || (!connected && !canUseBluetooth);
-
-          return (
-            <div
-              key={deviceType.key}
-              className={`glass-card-hover p-4 cursor-pointer transition-all duration-200 ${
-                expandedDevice === deviceType.key ? 'ring-2 ring-primary-500/50' : ''
-              }`}
-              onClick={() =>
-                setExpandedDevice((current) => (current === deviceType.key ? null : deviceType.key))
-              }
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="text-3xl">{deviceType.icon}</div>
-                  <div>
-                    <h4 className="font-medium text-dark-200">{deviceType.name}</h4>
-                    <p className="text-sm text-dark-400">{deviceType.description}</p>
-                    {deviceType.device?.name && (
-                      <p className="text-xs text-dark-500 mt-1">Device: {deviceType.device.name}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {getStatusBadge(deviceType.device, deviceType.isConnecting)}
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (connected) {
-                        onDisconnectDevice(deviceType.key);
-                        return;
-                      }
-
-                      if (!deviceType.isConnecting && canUseBluetooth) {
-                        deviceType.connect();
-                      }
-                    }}
-                    disabled={shouldDisable}
-                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                      connected
-                        ? 'bg-danger-500/20 text-danger-400 border border-danger-500/30 hover:bg-danger-500/30'
-                        : deviceType.isConnecting
-                          ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                          : canUseBluetooth
-                            ? `btn-${deviceType.color}`
-                            : 'bg-dark-800 text-dark-500 cursor-not-allowed'
-                    }`}
-                  >
-                    {connected
-                      ? 'Disconnect'
-                      : deviceType.isConnecting
-                        ? 'Connecting...'
-                        : canUseBluetooth
-                          ? 'Connect'
-                          : 'Unavailable'}
-                  </button>
+        {deviceStates.map((deviceState) => (
+          <div
+            key={deviceState.key}
+            className={`glass-card-hover p-4 cursor-pointer transition-all duration-200 ${
+              expandedDevice === deviceState.key ? 'ring-2 ring-primary-500/50' : ''
+            }`}
+            onClick={() =>
+              setExpandedDevice(
+                expandedDevice === deviceState.key ? null : deviceState.key,
+              )
+            }
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="text-3xl">{deviceState.icon}</div>
+                <div>
+                  <h4 className="font-medium text-dark-200">{deviceState.name}</h4>
+                  <p className="text-sm text-dark-400">{deviceState.description}</p>
+                  {deviceState.device?.name && (
+                    <p className="text-xs text-dark-500 mt-1">
+                      Device: {deviceState.device.name}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {expandedDevice === deviceType.key && (
-                <div className="mt-4 pt-4 border-t border-glass-border space-y-3 animate-slide-down">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-dark-500">Status:</span>
-                      <span className="ml-2 text-dark-300">{connected ? 'Connected' : 'Disconnected'}</span>
-                    </div>
-                    <div>
-                      <span className="text-dark-500">Type:</span>
-                      <span className="ml-2 text-dark-300 capitalize">{formatKey(deviceType.key)}</span>
-                    </div>
-                    {deviceType.device?.id && (
-                      <div className="col-span-2">
-                        <span className="text-dark-500">Device ID:</span>
-                        <span className="ml-2 text-dark-300 font-mono text-xs">{deviceType.device.id}</span>
-                      </div>
-                    )}
+              <div className="flex items-center gap-3">
+                {getStatusBadge(deviceState.device, deviceState.isConnecting)}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!deviceState.device?.connected && !deviceState.isConnecting) {
+                      deviceState.connect();
+                    }
+                  }}
+                  disabled={!canUseBluetooth || deviceState.device?.connected || deviceState.isConnecting}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    deviceState.device?.connected
+                      ? 'bg-success-500/20 text-success-400 border border-success-500/30'
+                      : deviceState.isConnecting
+                        ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                        : canUseBluetooth
+                          ? `btn-${deviceState.color}`
+                          : 'bg-dark-800 text-dark-500 cursor-not-allowed'
+                  }`}
+                >
+                  {deviceState.device?.connected
+                    ? 'Connected'
+                    : deviceState.isConnecting
+                      ? 'Connecting...'
+                      : !canUseBluetooth
+                        ? 'Unavailable'
+                        : 'Connect'}
+                </button>
+              </div>
+            </div>
+
+            {expandedDevice === deviceState.key && (
+              <div className="mt-4 pt-4 border-t border-glass-border space-y-3 animate-slide-down">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-dark-500">Status:</span>
+                    <span className="ml-2 text-dark-300">
+                      {deviceState.device?.connected ? 'Connected' : 'Disconnected'}
+                    </span>
                   </div>
-
-                  {deviceType.error && (
-                    <p className="text-xs text-danger-400 bg-danger-500/10 border border-danger-500/30 rounded-lg p-3">
-                      {deviceType.error}
-                    </p>
-                  )}
-
-                  {connected && (
-                    <div className="flex items-center gap-2 text-xs text-success-400">
-                      <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
-                      Device is actively transmitting data
+                  <div>
+                    <span className="text-dark-500">Type:</span>
+                    <span className="ml-2 text-dark-300 capitalize">
+                      {deviceState.key.replace(/([A-Z])/g, ' $1').trim()}
+                    </span>
+                  </div>
+                  {deviceState.device?.id && (
+                    <div className="col-span-2">
+                      <span className="text-dark-500">Device ID:</span>
+                      <span className="ml-2 text-dark-300 font-mono text-xs">
+                        {deviceState.device.id}
+                      </span>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+
+                {deviceState.device?.connected && (
+                  <div className="flex items-center gap-2 text-xs text-success-400">
+                    <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
+                    Device is actively transmitting data
+                  </div>
+                )}
+
+                {deviceState.device?.connected && onDisconnectDevice && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs text-danger-400 hover:text-danger-300"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDisconnectDevice(deviceState.key);
+                    }}
+                  >
+                    Disconnect Device
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {status && (
@@ -235,7 +263,7 @@ export const BluetoothConnectPanel: React.FC<BluetoothConnectPanelProps> = ({
         </div>
       )}
 
-      {env.canUse === false && (
+      {!canUseBluetooth && (
         <div className="p-4 bg-warning-500/10 border border-warning-500/20 rounded-xl">
           <div className="flex items-start gap-3">
             <span className="text-warning-400 text-xl">⚠️</span>
@@ -261,9 +289,9 @@ export const BluetoothConnectPanel: React.FC<BluetoothConnectPanelProps> = ({
           Refresh Connections
         </button>
 
-        {deviceTypes.some(({ device }) => isDeviceConnected(device)) && (
+        {Object.values(devices).some((device) => device?.connected) && (
           <button
-            onClick={onDisconnectAll}
+            onClick={handleDisconnectAll}
             className="btn-secondary text-sm text-danger-400 hover:text-danger-300"
           >
             Disconnect All
