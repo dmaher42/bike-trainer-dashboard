@@ -1,67 +1,148 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from "react";
 
-import { UUIDS, toUuid16 } from '../utils/bluetoothUtils';
+import type { BluetoothDevice as AppBluetoothDevice } from "../types";
 
-export function useTrainerControl(device: BluetoothDevice | null) {
-  const controlCharacteristic =
-    useRef<BluetoothRemoteGATTCharacteristic | null>(null);
+const FTMS_SERVICE_UUID: BluetoothServiceUUID = 0x1826;
+const TARGET_POWER_CHARACTERISTIC_UUID: BluetoothCharacteristicUUID = 0x2ad7;
 
-  const setTargetPower = useCallback(
-    async (powerWatts: number) => {
-      if (!device?.connected || !controlCharacteristic.current) return;
+const toUint16LittleEndian = (value: number): Uint8Array => {
+  const buffer = new ArrayBuffer(2);
+  const view = new DataView(buffer);
+  view.setUint16(0, value, true);
+  return new Uint8Array(buffer);
+};
 
-      try {
-        // FTMS Set Target Power command
-        const buffer = new ArrayBuffer(3);
-        const view = new DataView(buffer);
-        view.setUint8(0, 0x05); // Set Target Power opcode
-        view.setUint16(1, powerWatts, true); // Power value (little endian)
+const clampPower = (watts: number): number => {
+  if (!Number.isFinite(watts)) {
+    return 0;
+  }
 
-        await controlCharacteristic.current.writeValue(buffer);
-      } catch (error) {
-        console.error('Failed to set target power:', error);
-      }
-    },
-    [device],
-  );
+  return Math.min(2000, Math.max(0, Math.round(watts)));
+};
 
-  const setResistance = useCallback(
-    async (resistanceLevel: number) => {
-      if (!device?.connected || !controlCharacteristic.current) return;
+const isNavigatorWithBluetooth = (
+  value: Navigator | undefined,
+): value is Navigator & { bluetooth: Bluetooth } =>
+  typeof value !== "undefined" && typeof value.bluetooth !== "undefined";
 
-      try {
-        // FTMS Set Resistance Level command
-        const buffer = new ArrayBuffer(2);
-        const view = new DataView(buffer);
-        view.setUint8(0, 0x04); // Set Resistance Level opcode
-        view.setUint8(1, Math.max(0, Math.min(100, resistanceLevel))); // Resistance 0-100
-
-        await controlCharacteristic.current.writeValue(buffer);
-      } catch (error) {
-        console.error('Failed to set resistance:', error);
-      }
-    },
-    [device],
-  );
-
-  const initializeControl = useCallback(async (device: BluetoothDevice) => {
+const writeCharacteristic = async (
+  characteristic: BluetoothRemoteGATTCharacteristic,
+  payload: Uint8Array,
+) => {
+  if ("writeValueWithoutResponse" in characteristic) {
     try {
-      // Get the control characteristic for FTMS
-      const server = (device as any).gatt?.server;
-      if (!server) return;
-
-      const service = await server.getPrimaryService(UUIDS.FTMS);
-      controlCharacteristic.current = await service.getCharacteristic(
-        toUuid16(0x2ad9),
-      ); // Fitness Machine Control Point
+      await characteristic.writeValueWithoutResponse(payload);
+      return;
     } catch (error) {
-      console.error('Failed to initialize trainer control:', error);
+      console.warn("Failed to writeValueWithoutResponse, retrying with writeValue", error);
+    }
+  }
+
+  await characteristic.writeValue(payload);
+};
+
+const findMatchingDevice = async (
+  deviceId: string,
+): Promise<BluetoothDevice | null> => {
+  const nav = typeof navigator === "undefined" ? undefined : navigator;
+  if (!isNavigatorWithBluetooth(nav)) {
+    return null;
+  }
+
+  if (!("getDevices" in nav.bluetooth) || typeof nav.bluetooth.getDevices !== "function") {
+    return null;
+  }
+
+  try {
+    const devices = await nav.bluetooth.getDevices();
+    return devices.find((device) => device.id === deviceId) ?? null;
+  } catch (error) {
+    console.warn("Failed to enumerate Bluetooth devices", error);
+    return null;
+  }
+};
+
+export const useTrainerControl = (
+  ftmsDevice?: AppBluetoothDevice | null,
+): {
+  initializeControl: (device: AppBluetoothDevice) => Promise<void>;
+  setTargetPower: (targetPower: number) => Promise<void>;
+} => {
+  const deviceRef = useRef<BluetoothDevice | null>(null);
+  const characteristicRef = useRef<BluetoothRemoteGATTCharacteristic | null>(null);
+
+  useEffect(() => {
+    if (!ftmsDevice?.connected) {
+      deviceRef.current = null;
+      characteristicRef.current = null;
+    }
+  }, [ftmsDevice?.connected]);
+
+  const initializeControl = useCallback(
+    async (device: AppBluetoothDevice) => {
+      if (!device?.id) {
+        return;
+      }
+
+      const existing = deviceRef.current;
+      if (existing?.id === device.id && characteristicRef.current) {
+        return;
+      }
+
+      const browserDevice = await findMatchingDevice(device.id);
+      if (!browserDevice) {
+        console.warn("Unable to locate FTMS device for trainer control", device.id);
+        return;
+      }
+
+      if (!browserDevice.gatt) {
+        console.warn("Connected FTMS device does not expose a GATT server", browserDevice.id);
+        return;
+      }
+
+      let gattServer = browserDevice.gatt;
+      if (!browserDevice.gatt.connected) {
+        try {
+          gattServer = await browserDevice.gatt.connect();
+        } catch (error) {
+          console.error("Failed to connect to FTMS GATT server", error);
+          return;
+        }
+      }
+
+      try {
+        const service = await gattServer.getPrimaryService(FTMS_SERVICE_UUID);
+        const characteristic = await service.getCharacteristic(
+          TARGET_POWER_CHARACTERISTIC_UUID,
+        );
+        deviceRef.current = browserDevice;
+        characteristicRef.current = characteristic;
+      } catch (error) {
+        console.error("Failed to initialise trainer control", error);
+      }
+    },
+    [],
+  );
+
+  const setTargetPower = useCallback(async (targetPower: number) => {
+    const characteristic = characteristicRef.current;
+    if (!characteristic) {
+      return;
+    }
+
+    const payload = toUint16LittleEndian(clampPower(targetPower));
+
+    try {
+      await writeCharacteristic(characteristic, payload);
+    } catch (error) {
+      console.error("Failed to set trainer target power", error);
     }
   }, []);
 
   return {
-    setTargetPower,
-    setResistance,
     initializeControl,
+    setTargetPower,
   };
-}
+};
+
+export default useTrainerControl;
