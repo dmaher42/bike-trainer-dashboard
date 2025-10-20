@@ -4,7 +4,7 @@
   "description": "A React TypeScript dashboard for managing bike trainer metrics and workouts.",
   "author": "Your Name",
   "license": "MIT",
-  "homepage": "https://your-username.github.io/bike-trainer-dashboard",
+  "homepage": "https://dmaher42.github.io/bike-trainer-dashboard",
   "private": true,
   "type": "module",
   "scripts": {
