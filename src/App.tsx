@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Sample } from "./types";
 import { useMetrics } from "./hooks/useMetrics";
 import { downloadCSV } from "./utils/metricsUtils";
@@ -7,13 +7,19 @@ import { useRoute } from "./hooks/useRoute";
 import VirtualMap from "./components/VirtualMap";
 import RouteLoader from "./components/RouteLoader";
 import { useSettings } from "./hooks/useSettings";
+import useBluetooth from "./hooks/useBluetooth";
+import useWorkout from "./hooks/useWorkout";
+import { useTrainerControl } from "./hooks/useTrainerControl";
 
 function App() {
   const [sim, setSim] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
   const [rideOn, setRideOn] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [waypoints, setWaypoints] = useState<{ x: number; y: number }[]>([]);
-  
+
+  const { settings, updateSetting } = useSettings();
+
   const {
     metrics,
     samples,
@@ -31,9 +37,27 @@ function App() {
     resetToDefault,
   } = useRoute();
 
+  const { connectedDevices: devices } = useBluetooth();
+  const { isActive: activeWorkout, targetPower } = useWorkout();
+
+  const ftmsDevice = devices.ftms;
+  const { setTargetPower, initializeControl } = useTrainerControl(ftmsDevice);
+
   useEffect(() => {
     setSim(settings.autoStartRide);
   }, [settings.autoStartRide]);
+
+  useEffect(() => {
+    if (ftmsDevice?.connected) {
+      void initializeControl(ftmsDevice);
+    }
+  }, [ftmsDevice?.connected, ftmsDevice, initializeControl]);
+
+  useEffect(() => {
+    if (activeWorkout && targetPower && ftmsDevice?.connected) {
+      void setTargetPower(targetPower);
+    }
+  }, [activeWorkout, targetPower, ftmsDevice?.connected, ftmsDevice, setTargetPower]);
 
   const handleStartRide = () => {
     if (startRide()) {
