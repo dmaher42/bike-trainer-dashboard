@@ -1,0 +1,7 @@
+# Ensure JavaScript modules are served with the correct MIME type.
+AddType application/javascript .js
+AddType application/javascript .mjs
+AddType application/javascript .ts
+AddType application/javascript .tsx
+AddType text/css .css
+AddType text/html .html
