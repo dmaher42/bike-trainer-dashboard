@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Metrics, Sample } from "./types";
+import React, { useCallback, useState } from "react";
+import { Sample } from "./types";
 import { useMetrics } from "./hooks/useMetrics";
 import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
@@ -10,6 +10,8 @@ import RouteLoader from "./components/RouteLoader";
 function App() {
   const [sim, setSim] = useState(false);
   const [rideOn, setRideOn] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [waypoints, setWaypoints] = useState<{ x: number; y: number }[]>([]);
   
   const {
     metrics,
@@ -45,6 +47,11 @@ function App() {
       setRideOn(false);
     }
   };
+
+  const handleRouteClick = useCallback((point: { x: number; y: number }) => {
+    setWaypoints((prev) => [...prev, point]);
+    setStatus(`Waypoint added at (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`);
+  }, []);
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -100,7 +107,26 @@ function App() {
               resetRoute={resetToDefault}
             />
           </div>
-          <VirtualMap route={route} metrics={metrics} />
+          <VirtualMap route={route} metrics={metrics} onRouteClick={handleRouteClick} />
+          {status ? (
+            <p className="mt-2 text-sm text-emerald-400" role="status">
+              {status}
+            </p>
+          ) : null}
+          {waypoints.length > 0 && (
+            <div className="mt-2 text-sm text-neutral-400">
+              Waypoints: {waypoints.length}
+              <button
+                onClick={() => {
+                  setWaypoints([]);
+                  setStatus("Waypoints cleared");
+                }}
+                className="ml-2 px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <p className="mt-2 text-neutral-400 text-sm">
             Tip: Load a .gpx file to follow a real-world route.
           </p>
