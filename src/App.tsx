@@ -16,7 +16,7 @@ import WorkoutPanel from "./components/WorkoutPanel";
 import useBluetooth from "./hooks/useBluetooth";
 import useMetrics from "./hooks/useMetrics";
 import useRoute from "./hooks/useRoute";
-import useWorkout from "./hooks/useWorkout";
+import { useWorkout } from "./hooks/useWorkout";
 import { downloadCSV, formatTime } from "./utils/metricsUtils";
 import defaultWorkouts from "./utils/workoutPlans";
 import type { BluetoothDevice } from "./types";
