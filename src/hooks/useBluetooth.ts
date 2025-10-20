@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BluetoothDevice as AppBluetoothDevice, EnvironmentInfo } from '../types';
+import { UUIDS } from '../utils/bluetoothUtils';
 
 type DeviceKind = 'ftms' | 'cps' | 'hr';
 
@@ -68,6 +69,10 @@ export const useBluetooth = (): UseBluetoothResult => {
 
   const deviceRefs = useRef<Partial<Record<DeviceKind, globalThis.BluetoothDevice>>>({});
   const disconnectListeners = useRef<Partial<Record<DeviceKind, EventListener>>>({});
+  const characteristicRefs = useRef<
+    Partial<Record<DeviceKind, BluetoothRemoteGATTCharacteristic>>
+  >({});
+  const notificationListeners = useRef<Partial<Record<DeviceKind, EventListener>>>({});
 
   const updateStatus = useCallback((kind: DeviceKind, status: ConnectionStatus) => {
     setStatuses((prev) => ({ ...prev, [kind]: status }));
@@ -118,6 +123,29 @@ export const useBluetooth = (): UseBluetoothResult => {
     const { resetStatus = true, clearError: shouldClearError = true } = options;
     const device = deviceRefs.current[kind];
     const listener = disconnectListeners.current[kind];
+    const characteristic = characteristicRefs.current[kind];
+    const notificationListener = notificationListeners.current[kind];
+
+    if (characteristic) {
+      if (notificationListener) {
+        try {
+          characteristic.removeEventListener('characteristicvaluechanged', notificationListener);
+        } catch (error) {
+          console.warn('Failed to remove characteristic listener', error);
+        }
+      }
+
+      try {
+        const stopResult = characteristic.stopNotifications();
+        if (stopResult instanceof Promise) {
+          void stopResult.catch((error) => {
+            console.warn('Failed to stop notifications', error);
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to stop notifications', error);
+      }
+    }
 
     if (device && listener) {
       device.removeEventListener('gattserverdisconnected', listener);
@@ -133,6 +161,8 @@ export const useBluetooth = (): UseBluetoothResult => {
 
     delete deviceRefs.current[kind];
     delete disconnectListeners.current[kind];
+    delete characteristicRefs.current[kind];
+    delete notificationListeners.current[kind];
 
     setConnectedDevices((prev) => {
       if (!(kind in prev)) {
@@ -216,7 +246,113 @@ export const useBluetooth = (): UseBluetoothResult => {
     [cleanupDevice],
   );
 
-  const connectFTMS = useCallback(() => connectDevice('ftms'), [connectDevice]);
+  const connectFTMS = useCallback(async () => {
+    const nav = typeof navigator === 'undefined' ? undefined : navigator;
+    if (!isNavigatorWithBluetooth(nav)) {
+      setError('ftms', 'This environment does not support Web Bluetooth.');
+      updateStatus('ftms', 'error');
+      return;
+    }
+
+    updateStatus('ftms', 'requesting');
+    clearError('ftms');
+
+    const { bluetooth } = nav;
+
+    try {
+      const device = await bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUIDS.ftms] }],
+        optionalServices: [SERVICE_UUIDS.ftms],
+      });
+
+      updateStatus('ftms', 'connecting');
+
+      deviceRefs.current.ftms = device;
+
+      const onDisconnected = handleDisconnection('ftms');
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      disconnectListeners.current.ftms = onDisconnected;
+
+      if (!device.gatt) {
+        throw new Error('Device does not support GATT.');
+      }
+
+      const server = await device.gatt.connect();
+      if (!server.connected) {
+        throw new Error('Failed to establish a GATT connection.');
+      }
+
+      const service = await server.getPrimaryService(SERVICE_UUIDS.ftms);
+      const characteristic = await service.getCharacteristic(UUIDS.INDOOR_BIKE_DATA);
+
+      const handleNotification: EventListener = (event) => {
+        const target = event.target as BluetoothRemoteGATTCharacteristic | null;
+        const value = target?.value;
+        if (!value) {
+          return;
+        }
+
+        let offset = 0;
+        const flags = value.getUint16(offset, true);
+        offset += 2;
+
+        let speedKph = 0;
+        let cadence = 0;
+        let power = 0;
+
+        if (flags & 0x0001) {
+          const speedHundredths = value.getUint16(offset, true);
+          offset += 2;
+          speedKph = (speedHundredths / 100) * 3.6;
+        }
+
+        if (flags & 0x0004) {
+          const cadenceHalf = value.getUint16(offset, true);
+          offset += 2;
+          cadence = cadenceHalf / 2;
+        }
+
+        if (flags & 0x0040) {
+          power = value.getInt16(offset, true);
+          offset += 2;
+        }
+
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(
+            new CustomEvent('ftms-data', {
+              detail: {
+                speed: speedKph,
+                cadence,
+                power,
+              },
+            }),
+          );
+        }
+      };
+
+      characteristic.addEventListener('characteristicvaluechanged', handleNotification);
+      notificationListeners.current.ftms = handleNotification;
+      characteristicRefs.current.ftms = characteristic;
+
+      await characteristic.startNotifications();
+
+      updateStatus('ftms', 'connected');
+      setEnvironment((prev) => ({ ...prev, bluetoothEnabled: true }));
+      setConnectedDevices((prev) => ({ ...prev, ftms: createAppDevice(device) }));
+    } catch (error) {
+      console.error('Failed to connect to FTMS device', error);
+      setError('ftms', error instanceof Error ? error.message : 'Failed to connect to device.');
+      updateStatus('ftms', 'error');
+      cleanupDevice('ftms', { resetStatus: false, clearError: false });
+    }
+  }, [
+    clearError,
+    cleanupDevice,
+    handleDisconnection,
+    setError,
+    updateStatus,
+    setEnvironment,
+  ]);
   const connectCPS = useCallback(() => connectDevice('cps'), [connectDevice]);
   const connectHR = useCallback(() => connectDevice('hr'), [connectDevice]);
 
