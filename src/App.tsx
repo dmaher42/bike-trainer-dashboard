@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Sample } from "./types";
 import { useMetrics } from "./hooks/useMetrics";
 import { downloadCSV } from "./utils/metricsUtils";
@@ -15,6 +15,14 @@ import { ModernHeader } from "./components/ModernHeader";
 import { ModernNavigation } from "./components/ModernNavigation";
 import { ModernControls } from "./components/ModernControls";
 import { LoadingSpinner } from "./components/LoadingStates";
+import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
+
+const DEVICE_KEYS = ["ftms", "cps", "hr"] as const;
+const DEVICE_LABELS: Record<(typeof DEVICE_KEYS)[number], string> = {
+  ftms: "Smart Trainer",
+  cps: "Power Meter",
+  hr: "Heart Rate Monitor",
+};
 
 function App() {
   type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
@@ -44,12 +52,65 @@ function App() {
     resetToDefault,
   } = useRoute();
 
-  const { environment: env, connectedDevices: devices } = useBluetooth();
+  const {
+    environment: env,
+    connectedDevices: devices,
+    statuses,
+    errors,
+    refreshEnvironment,
+    connectFTMS,
+    connectCPS,
+    connectHR,
+    disconnect,
+  } = useBluetooth();
   const { isActive: activeWorkout, targetPower, targetCadence } = useWorkout();
   const { saveRide } = useRideHistory();
 
   const ftmsDevice = devices.ftms;
   const { setTargetPower, initializeControl } = useTrainerControl(ftmsDevice);
+
+  const isConnecting = useMemo(
+    () => ({
+      ftms: statuses.ftms === "connecting" || statuses.ftms === "requesting",
+      cps: statuses.cps === "connecting" || statuses.cps === "requesting",
+      hr: statuses.hr === "connecting" || statuses.hr === "requesting",
+    }),
+    [statuses],
+  );
+
+  const bluetoothStatusMessage = useMemo(() => {
+    const activeConnection = DEVICE_KEYS.find((key) =>
+      ["connecting", "requesting"].includes(statuses[key] ?? ""),
+    );
+    if (activeConnection) {
+      return `Connecting to ${DEVICE_LABELS[activeConnection]}...`;
+    }
+
+    const deviceError = DEVICE_KEYS.find((key) => Boolean(errors[key]));
+    if (deviceError) {
+      return `${DEVICE_LABELS[deviceError]}: ${errors[deviceError]}`;
+    }
+
+    const connectedCount = DEVICE_KEYS.filter((key) => devices[key]?.connected).length;
+    if (connectedCount > 0) {
+      return `${connectedCount} device${connectedCount > 1 ? "s" : ""} connected`;
+    }
+
+    if (env.canUse === false) {
+      return "Bluetooth unavailable in this environment.";
+    }
+
+    return null;
+  }, [devices, env.canUse, errors, statuses]);
+
+  const handleDisconnectAll = useCallback(() => {
+    DEVICE_KEYS.forEach((key) => {
+      const device = devices[key];
+      if (device?.connected) {
+        disconnect(key);
+      }
+    });
+  }, [devices, disconnect]);
 
   const handleSimToggle = useCallback(
     (enabled: boolean) => {
@@ -151,6 +212,21 @@ function App() {
 
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1 space-y-6">
+              <BluetoothConnectPanel
+                env={env}
+                devices={devices}
+                status={bluetoothStatusMessage}
+                onConnectFTMS={connectFTMS}
+                onConnectCPS={connectCPS}
+                onConnectHR={connectHR}
+                onDisconnectDevice={disconnect}
+                onDisconnectAll={handleDisconnectAll}
+                onRefreshEnv={refreshEnvironment}
+                onShowFix={refreshEnvironment}
+                isConnecting={isConnecting}
+                errors={errors}
+              />
+
               {/* Metrics Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
