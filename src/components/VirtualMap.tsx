@@ -4,12 +4,13 @@ import type { Metrics, Route, RoutePoint } from "../types";
 interface VirtualMapProps {
   route: Route;
   metrics: Metrics;
+  onRouteClick?: (point: { x: number; y: number }) => void;
 }
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
-const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics }) => {
+const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, onRouteClick }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const gridPatternId = `${useId()}-grid`;
 
@@ -132,8 +133,12 @@ const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics }) => {
       });
 
       setSelectedIndex(nearestIndex);
+      if (onRouteClick) {
+        const { x, y } = route.pts[nearestIndex];
+        onRouteClick({ x, y });
+      }
     },
-    [route.pts],
+    [onRouteClick, route.pts],
   );
 
   return (
