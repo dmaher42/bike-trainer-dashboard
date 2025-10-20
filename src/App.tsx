@@ -10,6 +10,7 @@ import { useSettings } from "./hooks/useSettings";
 import useBluetooth from "./hooks/useBluetooth";
 import useWorkout from "./hooks/useWorkout";
 import { useTrainerControl } from "./hooks/useTrainerControl";
+import { useRideHistory } from "./hooks/useRideHistory";
 
 function App() {
   const [sim, setSim] = useState(false);
@@ -39,6 +40,7 @@ function App() {
 
   const { connectedDevices: devices } = useBluetooth();
   const { isActive: activeWorkout, targetPower } = useWorkout();
+  const { saveRide } = useRideHistory();
 
   const ftmsDevice = devices.ftms;
   const { setTargetPower, initializeControl } = useTrainerControl(ftmsDevice);
@@ -68,6 +70,10 @@ function App() {
   const handleStopRide = () => {
     if (stopRide()) {
       setRideOn(false);
+      if (samples.length > 0 && elapsed > 60) {
+        saveRide(samples, elapsed, metrics.distance);
+        setStatus("Ride saved!");
+      }
     }
   };
 
