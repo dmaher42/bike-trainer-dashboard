@@ -4,13 +4,14 @@ import type { Metrics, Route, RoutePoint } from "../types";
 interface VirtualMapProps {
   route: Route;
   metrics: Metrics;
+  waypoints?: { x: number; y: number }[];
   onRouteClick?: (point: { x: number; y: number }) => void;
 }
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
-const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, onRouteClick }) => {
+const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, waypoints, onRouteClick }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const gridPatternId = `${useId()}-grid`;
 
@@ -134,8 +135,7 @@ const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, onRouteClick })
 
       setSelectedIndex(nearestIndex);
       if (onRouteClick) {
-        const { x, y } = route.pts[nearestIndex];
-        onRouteClick({ x, y });
+        onRouteClick({ x: cursor.x, y: cursor.y });
       }
     },
     [onRouteClick, route.pts],
@@ -228,6 +228,18 @@ const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, onRouteClick })
               />
             </g>
           ) : null}
+          {waypoints &&
+            waypoints.map((wp, i) => (
+              <circle
+                key={i}
+                cx={wp.x * 1000}
+                cy={wp.y * 500}
+                r="4"
+                fill="#ef4444"
+                stroke="#111"
+                strokeWidth="1"
+              />
+            ))}
         </svg>
         {selectedPoint ? (
           <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-white/80 p-3 text-xs font-medium text-slate-700 shadow">
