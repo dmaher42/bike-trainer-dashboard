@@ -54,8 +54,8 @@ function App() {
   }, [ftmsDevice?.connected, ftmsDevice, initializeControl]);
 
   useEffect(() => {
-    if (activeWorkout && targetPower && ftmsDevice?.connected) {
-      void setTargetPower(targetPower);
+    if (activeWorkout && ftmsDevice?.connected) {
+      void setTargetPower(targetPower ?? 0);
     }
   }, [activeWorkout, targetPower, ftmsDevice?.connected, ftmsDevice, setTargetPower]);
 
