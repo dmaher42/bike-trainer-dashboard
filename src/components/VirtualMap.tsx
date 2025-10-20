@@ -1,5 +1,12 @@
-import React, { useCallback, useId, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+} from "react";
 import type { Metrics, Route, RoutePoint } from "../types";
+import { interpRoute } from "../utils/routeUtils";
 
 interface VirtualMapProps {
   route: Route;
@@ -8,32 +15,40 @@ interface VirtualMapProps {
   onRouteClick?: (point: { x: number; y: number }) => void;
 }
 
+const MAP_PADDING = 0.08;
+
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
-const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, waypoints, onRouteClick }) => {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const gridPatternId = `${useId()}-grid`;
+type Bounds = {
+  minX: number;
+  minY: number;
+  spanX: number;
+  spanY: number;
+};
 
-  const pathData = useMemo(() => {
+const defaultBounds: Bounds = {
+  minX: 0,
+  minY: 0,
+  spanX: 1,
+  spanY: 1,
+};
+
+const VirtualMap: React.FC<VirtualMapProps> = ({
+  route,
+  metrics,
+  waypoints = [],
+  onRouteClick,
+}) => {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const baseId = useId();
+  const gridPatternId = `${baseId}-grid`;
+  const routeGradientId = `${baseId}-routeGradient`;
+  const glowFilterId = `${baseId}-glow`;
+
+  const bounds = useMemo<Bounds>(() => {
     if (!route.pts.length) {
-      return "";
-    }
-
-    return route.pts
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-      .join(" ");
-  }, [route.pts]);
-
-  const bounds = useMemo(() => {
-    if (!route.pts.length) {
-      return {
-        minX: 0,
-        minY: 0,
-        width: 100,
-        height: 100,
-        viewBox: "0 0 100 100",
-      };
+      return defaultBounds;
     }
 
     const xs = route.pts.map((point) => point.x);
@@ -42,218 +57,271 @@ const VirtualMap: React.FC<VirtualMapProps> = ({ route, metrics, waypoints, onRo
     const maxX = Math.max(...xs);
     const minY = Math.min(...ys);
     const maxY = Math.max(...ys);
-    const width = Math.max(maxX - minX, 1);
-    const height = Math.max(maxY - minY, 1);
-    const padding = Math.max(width, height) * 0.1;
 
     return {
       minX,
       minY,
-      width,
-      height,
-      viewBox: `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`,
+      spanX: Math.max(maxX - minX, 1),
+      spanY: Math.max(maxY - minY, 1),
     };
   }, [route.pts]);
 
-  const currentPosition = useMemo<RoutePoint | null>(() => {
+  const normalizePoint = useCallback(
+    (point: RoutePoint | { x: number; y: number }) => {
+      const safeSpanX = bounds.spanX || 1;
+      const safeSpanY = bounds.spanY || 1;
+      const normalisedX =
+        MAP_PADDING + ((point.x - bounds.minX) / safeSpanX) * (1 - MAP_PADDING * 2);
+      const normalisedY =
+        MAP_PADDING +
+        (1 - (point.y - bounds.minY) / safeSpanY) * (1 - MAP_PADDING * 2);
+
+      return {
+        x: clamp(normalisedX, MAP_PADDING, 1 - MAP_PADDING),
+        y: clamp(normalisedY, MAP_PADDING, 1 - MAP_PADDING),
+      };
+    },
+    [bounds.minX, bounds.spanX, bounds.spanY, bounds.minY],
+  );
+
+  const routePolyline = useMemo(() => {
+    if (!route.pts.length) {
+      return "";
+    }
+
+    return route.pts
+      .map((point) => {
+        const normalised = normalizePoint(point);
+        return `${(normalised.x * 1000).toFixed(2)},${(normalised.y * 500).toFixed(2)}`;
+      })
+      .join(" ");
+  }, [normalizePoint, route.pts]);
+
+  const totalDistance = useMemo(() => {
+    if (route.total > 0) {
+      return route.total;
+    }
+    const last = route.cum.at(-1);
+    return last && last > 0 ? last : 0;
+  }, [route.cum, route.total]);
+
+  const loopDistance = totalDistance || 1;
+  const fracOnLoop = totalDistance
+    ? (metrics.distance % totalDistance) / totalDistance
+    : 0;
+
+  const currentPosition = useMemo(() => {
     if (!route.pts.length) {
       return null;
     }
 
-    const cumulative = route.cum;
-    const totalDistance = route.total || (cumulative.length ? cumulative[cumulative.length - 1] : 0);
+    return interpRoute(route, fracOnLoop);
+  }, [fracOnLoop, route]);
 
-    if (!totalDistance) {
-      return route.pts[0];
+  const currentPositionNormalised = useMemo(() => {
+    if (!currentPosition) {
+      return null;
     }
 
-    const targetDistance = clamp(metrics.distance ?? 0, 0, totalDistance);
+    return normalizePoint(currentPosition);
+  }, [currentPosition, normalizePoint]);
 
-    if (cumulative.length === route.pts.length && cumulative.length > 1) {
-      for (let index = 1; index < cumulative.length; index += 1) {
-        const prevDistance = cumulative[index - 1];
-        const nextDistance = cumulative[index];
-
-        if (targetDistance <= nextDistance) {
-          const segment = nextDistance - prevDistance;
-          const ratio = segment > 0 ? (targetDistance - prevDistance) / segment : 0;
-          const start = route.pts[index - 1];
-          const end = route.pts[index];
-
-          return {
-            x: start.x + (end.x - start.x) * ratio,
-            y: start.y + (end.y - start.y) * ratio,
-            elevation:
-              start.elevation !== undefined && end.elevation !== undefined
-                ? start.elevation + (end.elevation - start.elevation) * ratio
-                : undefined,
-          };
-        }
-      }
+  const waypointDots = useMemo(() => {
+    if (!waypoints.length) {
+      return [] as { x: number; y: number }[];
     }
 
-    const ratio = clamp(totalDistance ? targetDistance / totalDistance : 0, 0, 1);
-    const approximateIndex = Math.round(ratio * (route.pts.length - 1));
-    return route.pts[approximateIndex];
-  }, [metrics.distance, route.cum, route.pts, route.total]);
+    return waypoints.map((point) => normalizePoint(point));
+  }, [normalizePoint, waypoints]);
 
-  const selectedPoint = useMemo<RoutePoint | null>(
-    () => (selectedIndex !== null ? route.pts[selectedIndex] : null),
-    [route.pts, selectedIndex],
-  );
+  useEffect(() => {
+    if (!svgRef.current || !onRouteClick) {
+      return undefined;
+    }
 
-  const handleMapClick = useCallback(
-    (event: React.MouseEvent<SVGSVGElement>) => {
-      if (!route.pts.length) {
+    const svg = svgRef.current;
+
+    const handlePointClick = (event: MouseEvent) => {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
         return;
       }
 
-      const svg = event.currentTarget;
-      const point = svg.createSVGPoint();
-      point.x = event.clientX;
-      point.y = event.clientY;
-      const ctm = svg.getScreenCTM();
+      const xRatio = (event.clientX - rect.left) / rect.width;
+      const yRatio = (event.clientY - rect.top) / rect.height;
 
-      if (!ctm) {
-        return;
-      }
+      const adjustedX = clamp(
+        (xRatio - MAP_PADDING) / (1 - MAP_PADDING * 2),
+        0,
+        1,
+      );
+      const adjustedY = clamp(
+        (yRatio - MAP_PADDING) / (1 - MAP_PADDING * 2),
+        0,
+        1,
+      );
 
-      const cursor = point.matrixTransform(ctm.inverse());
-      let nearestIndex = 0;
-      let nearestDistance = Number.POSITIVE_INFINITY;
+      const actualX = bounds.minX + bounds.spanX * adjustedX;
+      const actualY = bounds.minY + bounds.spanY * (1 - adjustedY);
 
-      route.pts.forEach((routePoint, index) => {
-        const dx = routePoint.x - cursor.x;
-        const dy = routePoint.y - cursor.y;
-        const distance = dx * dx + dy * dy;
+      onRouteClick({ x: actualX, y: actualY });
+    };
 
-        if (distance < nearestDistance) {
-          nearestIndex = index;
-          nearestDistance = distance;
-        }
-      });
-
-      setSelectedIndex(nearestIndex);
-      if (onRouteClick) {
-        onRouteClick({ x: cursor.x, y: cursor.y });
-      }
-    },
-    [onRouteClick, route.pts],
-  );
+    svg.addEventListener("click", handlePointClick);
+    return () => svg.removeEventListener("click", handlePointClick);
+  }, [bounds.minX, bounds.spanX, bounds.spanY, bounds.minY, onRouteClick]);
 
   return (
-    <section
-      className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm"
-      aria-label={route.name ? `${route.name} virtual map` : "Virtual route map"}
-    >
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-slate-900">
-          {route.name ?? "Virtual Route"}
-        </h2>
-        <p className="text-sm text-slate-500">
-          Distance ridden: {metrics.distance.toFixed(1)} km of {route.total.toFixed(1)} km
-        </p>
-      </div>
-      <div className="relative">
-        <svg
-          className="h-72 w-full"
-          viewBox={bounds.viewBox}
-          role="img"
-          aria-label="Route overview"
-          onClick={handleMapClick}
-        >
-          <title>{route.name ?? "Virtual route"}</title>
-          <defs>
-            <pattern
-              id={gridPatternId}
-              x="0"
-              y="0"
-              width={bounds.width / 10}
-              height={bounds.height / 10}
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d={`M ${bounds.width / 10} 0 L 0 0 0 ${bounds.height / 10}`}
-                fill="none"
-                stroke="rgba(148, 163, 184, 0.3)"
-                strokeWidth={bounds.width / 200}
-              />
-            </pattern>
-          </defs>
-          <rect
-            x={bounds.minX - bounds.width * 0.1}
-            y={bounds.minY - bounds.height * 0.1}
-            width={bounds.width * 1.2}
-            height={bounds.height * 1.2}
-            fill={`url(#${gridPatternId})`}
-          />
-          {pathData ? (
-            <path
-              d={pathData}
-              fill="none"
-              stroke="#6366f1"
-              strokeWidth={Math.max(bounds.width, bounds.height) * 0.01}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          ) : null}
-          {currentPosition ? (
-            <g aria-label="Current position">
-              <circle
-                cx={currentPosition.x}
-                cy={currentPosition.y}
-                r={Math.max(bounds.width, bounds.height) * 0.015}
-                fill="#22d3ee"
-                opacity={0.9}
-              />
-              <circle
-                cx={currentPosition.x}
-                cy={currentPosition.y}
-                r={Math.max(bounds.width, bounds.height) * 0.03}
-                fill="none"
-                stroke="#0e7490"
-                strokeWidth={Math.max(bounds.width, bounds.height) * 0.006}
-                opacity={0.7}
-              />
-            </g>
-          ) : null}
-          {selectedPoint ? (
-            <g aria-label="Selected point">
-              <circle
-                cx={selectedPoint.x}
-                cy={selectedPoint.y}
-                r={Math.max(bounds.width, bounds.height) * 0.018}
-                fill="#f97316"
-                opacity={0.8}
-              />
-            </g>
-          ) : null}
-          {waypoints &&
-            waypoints.map((wp, i) => (
-              <circle
-                key={i}
-                cx={wp.x * 1000}
-                cy={wp.y * 500}
-                r="4"
-                fill="#ef4444"
-                stroke="#111"
-                strokeWidth="1"
-              />
-            ))}
-        </svg>
-        {selectedPoint ? (
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-white/80 p-3 text-xs font-medium text-slate-700 shadow">
-            <p>Segment point #{selectedIndex! + 1}</p>
-            <p>
-              Coordinates: {selectedPoint.x.toFixed(1)}, {selectedPoint.y.toFixed(1)}
+    <div className="relative rounded-3xl border border-glass-border bg-dark-950/40 p-6 shadow-lg shadow-dark-900/20 backdrop-blur-xl">
+      <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-dark-900/60 via-dark-900/20 to-dark-800/20" />
+      <div className="relative z-10 flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-dark-100">
+              {route.name ?? "Virtual Route"}
+            </h3>
+            <p className="text-sm text-dark-400">
+              Distance ridden: {metrics.distance.toFixed(1)} km of {totalDistance.toFixed(1)} km
             </p>
-            {selectedPoint.elevation !== undefined ? (
-              <p>Elevation: {selectedPoint.elevation.toFixed(1)} m</p>
-            ) : null}
           </div>
-        ) : null}
+          <div className="flex items-center gap-2 rounded-full bg-dark-900/60 px-3 py-1 text-xs font-medium text-success-300">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-success-400" />
+            Live Tracking
+          </div>
+        </div>
+
+        <div className="w-full overflow-hidden rounded-2xl border border-glass-border bg-dark-950/60 shadow-inner">
+          <svg
+            ref={svgRef}
+            viewBox="0 0 1000 500"
+            className="h-full w-full"
+            role="img"
+            aria-label="Virtual route map"
+          >
+            <defs>
+              <pattern id={gridPatternId} width="50" height="50" patternUnits="userSpaceOnUse">
+                <path
+                  d="M 50 0 L 0 0 0 50"
+                  fill="none"
+                  stroke="rgba(148, 163, 184, 0.12)"
+                  strokeWidth="1"
+                />
+              </pattern>
+
+              <linearGradient id={routeGradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.9" />
+                <stop offset="50%" stopColor="#34d399" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.9" />
+              </linearGradient>
+
+              <filter id={glowFilterId}>
+                <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <rect x="0" y="0" width="1000" height="500" fill={`url(#${gridPatternId})`} />
+
+            {routePolyline ? (
+              <>
+                <polyline
+                  fill="none"
+                  stroke="rgba(56, 189, 248, 0.3)"
+                  strokeWidth="10"
+                  points={routePolyline}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <polyline
+                  fill="none"
+                  stroke={`url(#${routeGradientId})`}
+                  strokeWidth="5"
+                  points={routePolyline}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  filter={`url(#${glowFilterId})`}
+                />
+              </>
+            ) : null}
+
+            {waypointDots.map((point, index) => (
+              <g key={`waypoint-${index}`}>
+                <circle
+                  cx={point.x * 1000}
+                  cy={point.y * 500}
+                  r={10}
+                  fill="#ef4444"
+                  stroke="#fff"
+                  strokeWidth={2}
+                  filter={`url(#${glowFilterId})`}
+                />
+                <circle
+                  cx={point.x * 1000}
+                  cy={point.y * 500}
+                  r={16}
+                  fill="none"
+                  stroke="#ef4444"
+                  strokeWidth={1.5}
+                  opacity={0.5}
+                  className="animate-pulse"
+                />
+              </g>
+            ))}
+
+            {currentPositionNormalised ? (
+              <g>
+                <circle
+                  cx={currentPositionNormalised.x * 1000}
+                  cy={currentPositionNormalised.y * 500}
+                  r={18}
+                  fill="#fbbf24"
+                  opacity={0.25}
+                  className="animate-pulse"
+                />
+                <circle
+                  cx={currentPositionNormalised.x * 1000}
+                  cy={currentPositionNormalised.y * 500}
+                  r={10}
+                  fill="#f59e0b"
+                  stroke="#fff"
+                  strokeWidth={2}
+                  filter={`url(#${glowFilterId})`}
+                />
+                <circle
+                  cx={currentPositionNormalised.x * 1000}
+                  cy={currentPositionNormalised.y * 500}
+                  r={14}
+                  fill="none"
+                  stroke="#fbbf24"
+                  strokeWidth={1.5}
+                  className="animate-pulse"
+                />
+              </g>
+            ) : null}
+          </svg>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 text-center sm:grid-cols-3">
+          <div className="rounded-2xl border border-glass-border bg-dark-900/50 p-4">
+            <p className="text-xs uppercase tracking-widest text-dark-500">Distance</p>
+            <p className="text-xl font-semibold text-dark-100">
+              {metrics.distance.toFixed(2)} km
+            </p>
+          </div>
+          <div className="rounded-2xl border border-glass-border bg-dark-900/50 p-4">
+            <p className="text-xs uppercase tracking-widest text-dark-500">Loop Progress</p>
+            <p className="text-xl font-semibold text-dark-100">{(fracOnLoop * 100).toFixed(0)}%</p>
+          </div>
+          <div className="rounded-2xl border border-glass-border bg-dark-900/50 p-4">
+            <p className="text-xs uppercase tracking-widest text-dark-500">Waypoints</p>
+            <p className="text-xl font-semibold text-dark-100">{waypoints.length}</p>
+          </div>
+        </div>
       </div>
-    </section>
+    </div>
   );
 };
 
