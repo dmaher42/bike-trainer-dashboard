@@ -5,16 +5,16 @@ import { useMetrics } from "./hooks/useMetrics";
 import { useRoute } from "./hooks/useRoute";
 import { useWorkout } from "./hooks/useWorkout";
 import { downloadCSV } from "./utils/metricsUtils";
-import { Metric } from "./components/Metric";
+import Metric from "./components/Metric";
 import VirtualMap from "./components/VirtualMap";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
 import { StreetViewPlaceholder } from "./components/LoadingStates";
 import WorkoutPanel from "./components/WorkoutPanel";
 import EnvDiagnostics from "./components/EnvDiagnostics";
-import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
+import { BluetoothConnectPanel } from "./components/BluetoothConnectPanel";
 import RouteLoader from "./components/RouteLoader";
 import FixBluetoothModal from "./components/FixBluetoothModal";
-import ViewToggle from "./components/ViewToggle";
+import { ViewToggle } from "./components/ViewToggle";
 
 function App() {
   const [sim, setSim] = useState(false);
@@ -171,7 +171,7 @@ function App() {
           onShowFix={() => setShowFix(true)}
         />
 
-        <EnvDiagnostics environment={env} />
+        <EnvDiagnostics environment={env} connectedDevices={Object.values(devices)} />
 
         {activeTab === "dashboard" && (
           <div className="space-y-6">
@@ -229,7 +229,6 @@ function App() {
                     <VirtualMap
                       route={route}
                       metrics={metrics}
-                      onRouteClick={handleRouteClick}
                       showRouteInfo={true}
                     />
                   </div>
@@ -242,7 +241,6 @@ function App() {
                     isRiding={rideOn}
                     apiKey={googleMapsApiKey}
                     onLocationUpdate={setCurrentLocation}
-                    onError={(error) => setStatus(`Street View error: ${error}`)}
                   />
                 )}
 
