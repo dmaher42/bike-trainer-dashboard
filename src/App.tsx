@@ -14,6 +14,7 @@ import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
 import RouteLoader from "./components/RouteLoader";
 import FixBluetoothModal from "./components/FixBluetoothModal";
 import ViewToggle, { ViewOption } from "./components/ViewToggle";
+import { useApiKeys } from "./hooks/useApiKeys";
 
 type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
 
@@ -50,8 +51,7 @@ function App() {
   });
   const [currentView, setCurrentView] = useState<ViewOption>("virtual");
 
-  const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
-  const [mapboxApiKey, setMapboxApiKey] = useState<string>('');
+  const { googleMapsApiKey, mapboxApiKey, setGoogleMapsApiKey, setMapboxApiKey } = useApiKeys();
   const [mapboxSettings, setMapboxSettings] = useState({
     showBuildings: true,
     showTraffic: false,

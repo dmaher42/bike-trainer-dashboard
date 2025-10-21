@@ -1,4 +1,8 @@
 export function formatTime(totalSec: number): string {
+  if (!Number.isFinite(totalSec) || totalSec <= 0) {
+    return "00:00:00";
+  }
+
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = Math.floor(totalSec % 60);
@@ -8,6 +12,10 @@ export function formatTime(totalSec: number): string {
 }
 
 export function speedFromPower(w: number): number {
+  if (!Number.isFinite(w) || w <= 0) {
+    return 0;
+  }
+
   return Math.max(0, 10 + 0.02 * (w - 150));
 }
 
