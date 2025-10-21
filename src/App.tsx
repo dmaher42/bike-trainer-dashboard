@@ -6,6 +6,7 @@ import { Metric } from "./components/Metric";
 import { useRoute } from "./hooks/useRoute";
 import VirtualMap from "./components/VirtualMap";
 import RouteLoader from "./components/RouteLoader";
+import { GPXDebugPanel } from "./components/GPXDebugPanel";
 import { useSettings } from "./hooks/useSettings";
 import useBluetooth from "./hooks/useBluetooth";
 import useWorkout from "./hooks/useWorkout";
@@ -43,6 +44,7 @@ function App() {
     lastLoadedFile,
     loadGPX,
     resetToDefault,
+    clearError,
   } = useRoute();
 
   const { environment: env, connectedDevices: devices } = useBluetooth();
@@ -197,6 +199,10 @@ function App() {
             <p className="mt-4 text-sm text-dark-400">
               Tip: Load a .gpx file to follow a real-world route.
             </p>
+
+            <div className="mt-6">
+              <GPXDebugPanel route={route} error={error} onClearError={clearError} />
+            </div>
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
