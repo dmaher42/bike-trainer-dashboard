@@ -15,6 +15,7 @@ export class GoogleMapsManager {
   private mapsLoaded = false;
   private apiKey: string;
   private mapId?: string;
+  private loadPromise: Promise<void> | null = null;
 
   private constructor(config: GoogleMapsConfig) {
     this.apiKey = config.apiKey;
@@ -34,11 +35,33 @@ export class GoogleMapsManager {
   async loadGoogleMaps(): Promise<void> {
     if (this.mapsLoaded) return;
 
-    return new Promise((resolve, reject) => {
-      // Check if already loaded
-      if (window.google && window.google.maps) {
+    if (this.loadPromise) {
+      return this.loadPromise;
+    }
+
+    this.loadPromise = new Promise((resolve, reject) => {
+      const finalizeLoad = () => {
         this.mapsLoaded = true;
         resolve();
+      };
+
+      // Check if already loaded
+      if (window.google && window.google.maps) {
+        finalizeLoad();
+        return;
+      }
+
+      const existingCallback = window.initGoogleMaps;
+      window.initGoogleMaps = () => {
+        existingCallback?.();
+        finalizeLoad();
+      };
+
+      const existingScript = document.querySelector<HTMLScriptElement>(
+        'script[data-google-maps-loader="true"]'
+      );
+
+      if (existingScript) {
         return;
       }
 
@@ -46,6 +69,7 @@ export class GoogleMapsManager {
       const script = document.createElement('script');
       script.async = true;
       script.defer = true;
+      script.dataset.googleMapsLoader = 'true';
 
       // Build API URL
       const params = new URLSearchParams({
@@ -61,20 +85,21 @@ export class GoogleMapsManager {
 
       script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
 
-      // Set up callback
-      window.initGoogleMaps = () => {
-        this.mapsLoaded = true;
-        resolve();
-      };
-
       // Handle errors
       script.onerror = () => {
+        this.loadPromise = null;
         reject(new Error('Failed to load Google Maps API'));
       };
 
       // Add to document
       document.head.appendChild(script);
+    }).finally(() => {
+      if (!this.mapsLoaded) {
+        this.loadPromise = null;
+      }
     });
+
+    return this.loadPromise;
   }
 
   isLoaded(): boolean {
