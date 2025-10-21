@@ -1,123 +1,174 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Route } from "../types";
-import { MapProxyService } from "../services/mapProxy";
 import { GoogleMapsManager } from "../utils/googleMapsUtils";
 
-const MAX_STREET_VIEW_RETRIES = 3;
+const MIN_POINTS_FOR_STREET_VIEW = 2;
 
 interface StreetViewDisplayProps {
   route: Route;
-  currentPosition: number; // 0-1 fraction along the route
+  distance: number;
+  routeTotal: number;
   isRiding: boolean;
-  apiKey: string;
+  apiKey?: string;
   onLocationUpdate?: (location: string) => void;
   onError?: (error: string) => void;
 }
 
+const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+const toDegrees = (radians: number) => (radians * 180) / Math.PI;
+
+const bearing = (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral): number => {
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const deltaLon = toRadians(b.lng - a.lng);
+
+  const y = Math.sin(deltaLon) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
+
+  const heading = toDegrees(Math.atan2(y, x));
+  return (heading + 360) % 360;
+};
+
 export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   route,
-  currentPosition,
+  distance,
+  routeTotal,
   isRiding,
   apiKey,
   onLocationUpdate,
   onError,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<string>("");
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLng[]>([]);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const streetViewRef = useRef<HTMLDivElement | null>(null);
   const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
-  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const lastRequestedIndexRef = useRef<number | null>(null);
+  const lastIndexRef = useRef<number>(-1);
+  const mapsManagerRef = useRef<GoogleMapsManager | null>(null);
+  const warnedAboutTotalRef = useRef(false);
 
-  const [mapsManager, setMapsManager] = useState<GoogleMapsManager | null>(null);
+  const routeLatLngs = useMemo(() => {
+    return route.pts
+      .filter(
+        (point) =>
+          typeof point.lat === "number" &&
+          (typeof point.lon === "number" || typeof point.lng === "number"),
+      )
+      .map((point) => ({
+        lat: point.lat as number,
+        lng: (point.lon ?? point.lng) as number,
+      }));
+  }, [route.pts]);
 
-  useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
+  const progress = useMemo(() => {
+    const total = routeTotal > 0 ? routeTotal : route.total;
+    const loop = Math.max(1, total || 1);
+    const mod = ((distance % loop) + loop) % loop;
+    const fraction = total > 0 ? mod / loop : 0;
+
+    return {
+      fraction,
+      percent: Math.round(fraction * 100),
     };
-  }, []);
+  }, [distance, route.total, routeTotal]);
 
-  // Initialize Google Maps
   useEffect(() => {
-    const initializeMaps = async () => {
-      try {
-        const manager = GoogleMapsManager.getInstance({ apiKey });
-        setMapsManager(manager);
-
-        await manager.loadGoogleMaps();
-        setIsLoading(false);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to load Google Maps";
-        setError(errorMessage);
-        setIsLoading(false);
-        onError?.(errorMessage);
-      }
-    };
-
-    initializeMaps();
-  }, [apiKey, onError]);
-
-  // Convert route points to LatLng objects
-  useEffect(() => {
-    if (!mapsManager || !mapsManager.isLoaded()) return;
-
-    const convertRoutePoints = async () => {
-      try {
-        const latLngs = route.pts.map((point, index) => {
-          const baseLat = 37.7749;
-          const baseLng = -122.4194;
-          const angle = (index / route.pts.length) * 2 * Math.PI;
-          const radius = 0.01;
-          const lat = baseLat + radius * Math.cos(angle);
-          const lng = baseLng + radius * Math.sin(angle);
-          return new google.maps.LatLng(lat, lng);
-        });
-
-        setRouteLatLngs(latLngs);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to convert route points";
-        setError(errorMessage);
-        onError?.(errorMessage);
-      }
-    };
-
-    convertRoutePoints();
-  }, [mapsManager, route, onError]);
-
-  // calculateHeading helper
-  const calculateHeading = useCallback(
-    (index: number) => {
-      if (routeLatLngs.length === 0) return 0;
-      const position = routeLatLngs[index];
-      if (!position) return 0;
-      let heading = 0;
-      if (index < routeLatLngs.length - 1) {
-        const nextPoint = routeLatLngs[index + 1];
-        heading = google.maps.geometry.spherical.computeHeading(position, nextPoint);
-      }
-      return heading;
-    },
-    [routeLatLngs]
-  );
-
-  // Initialize Street View panorama and update function
-  useEffect(() => {
-    if (!streetViewRef.current || !mapsManager || !mapsManager.isLoaded() || routeLatLngs.length === 0) {
+    if (routeTotal > 0) {
+      warnedAboutTotalRef.current = false;
       return;
     }
 
-    try {
-      if (!panoramaRef.current) {
-        panoramaRef.current = new google.maps.StreetViewPanorama(streetViewRef.current, {
+    if (!warnedAboutTotalRef.current) {
+      console.warn(
+        "StreetViewDisplay: route.total is zero or missing. Street View progress may be inaccurate.",
+      );
+      warnedAboutTotalRef.current = true;
+    }
+  }, [routeTotal]);
+
+  useEffect(() => {
+    if (!apiKey) {
+      setIsLoading(false);
+      setError(null);
+      setCurrentLocation("");
+      mapsManagerRef.current = null;
+      panoramaRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    const initialise = async () => {
+      try {
+        const manager = GoogleMapsManager.getInstance({ apiKey });
+        mapsManagerRef.current = manager;
+        await manager.loadGoogleMaps();
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : "Failed to load Google Maps";
+        setError(message);
+        setIsLoading(false);
+        onError?.(message);
+      }
+    };
+
+    void initialise();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, loadAttempt, onError]);
+
+  useEffect(() => {
+    lastIndexRef.current = -1;
+    if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
+      setCurrentLocation("");
+    }
+  }, [routeLatLngs]);
+
+  useEffect(() => {
+    if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
+      return;
+    }
+
+    if (!streetViewRef.current) {
+      return;
+    }
+
+    const manager = mapsManagerRef.current;
+    if (!manager?.isLoaded()) {
+      return;
+    }
+
+    const initialHeading =
+      routeLatLngs.length > 1
+        ? bearing(routeLatLngs[0], routeLatLngs[1])
+        : 0;
+
+    if (!panoramaRef.current) {
+      panoramaRef.current = new google.maps.StreetViewPanorama(
+        streetViewRef.current,
+        {
           position: routeLatLngs[0],
-          pov: { heading: 0, pitch: 0 },
+          pov: { heading: initialHeading, pitch: 0 },
           zoom: 1,
           visible: true,
           addressControl: false,
@@ -127,131 +178,88 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           fullscreenControl: false,
           motionTracking: false,
           motionTrackingControl: false,
-        });
-      }
-
-      const updateStreetViewPosition = (index: number) => {
-        if (!panoramaRef.current || routeLatLngs.length === 0) return;
-        const position = routeLatLngs[index];
-        if (!position) return;
-        panoramaRef.current.setPosition(position);
-        panoramaRef.current.setPov({ heading: calculateHeading(index), pitch: 0 });
-        panoramaRef.current.setZoom(1);
-      };
-
-      // Set initial panorama position
-      updateStreetViewPosition(0);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to initialize Street View';
-      setError(errorMessage);
-      onError?.(errorMessage);
+        },
+      );
+    } else {
+      panoramaRef.current.setPosition(routeLatLngs[0]);
+      panoramaRef.current.setPov({ heading: initialHeading, pitch: 0 });
     }
-  }, [mapsManager, routeLatLngs, calculateHeading, onError]);
-
-  const loadStreetViewWithRetry = useCallback(
-    async (index: number, attempt = 0) => {
-      const position = routeLatLngs[index];
-      if (!position) {
-        return;
-      }
-
-      if (attempt === 0) {
-        if (retryTimeoutRef.current) {
-          clearTimeout(retryTimeoutRef.current);
-          retryTimeoutRef.current = undefined;
-        }
-        lastRequestedIndexRef.current = index;
-        setIsLoading(true);
-        setError(null);
-        setRetryCount(0);
-      }
-
-      try {
-        const proxy = MapProxyService.getInstance();
-
-        const image = await proxy.getStreetViewImage({
-          location: `${position.lat()},${position.lng()}`,
-          heading: calculateHeading(index),
-          pitch: 0,
-          fov: 90,
-          size: "640x640",
-        });
-
-        setImageUrl(image);
-
-        // Get current location name
-        if (mapsManager) {
-          try {
-            const location = await mapsManager.reverseGeocode(position);
-            setCurrentLocation(location);
-            onLocationUpdate?.(location);
-          } catch (err) {
-            console.warn('Failed to get location name:', err);
-          }
-        }
-
-        setRetryCount(0);
-        setIsLoading(false);
-        retryTimeoutRef.current = undefined;
-        lastRequestedIndexRef.current = index;
-      } catch (err) {
-        console.error("Failed to load Street View:", err);
-        const nextAttempt = attempt + 1;
-
-        if (nextAttempt <= MAX_STREET_VIEW_RETRIES) {
-          setRetryCount(nextAttempt);
-          if (retryTimeoutRef.current) {
-            clearTimeout(retryTimeoutRef.current);
-          }
-          retryTimeoutRef.current = setTimeout(() => {
-            void loadStreetViewWithRetry(index, nextAttempt);
-          }, 1000 * nextAttempt);
-          return;
-        }
-
-        const baseMessage = err instanceof Error ? err.message : "Failed to load Street View image";
-
-        const finalMessage = baseMessage
-          ? `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts: ${baseMessage}`
-          : `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts.`;
-
-        setImageUrl(null);
-        setError(finalMessage);
-        onError?.(finalMessage);
-        setRetryCount(0);
-        setIsLoading(false);
-        if (retryTimeoutRef.current) {
-          clearTimeout(retryTimeoutRef.current);
-          retryTimeoutRef.current = undefined;
-        }
-      }
-    },
-    [routeLatLngs, calculateHeading, onLocationUpdate, onError, mapsManager]
-  );
-
-  const handleManualRetry = useCallback(() => {
-    if (lastRequestedIndexRef.current !== null) {
-      void loadStreetViewWithRetry(lastRequestedIndexRef.current);
-    }
-  }, [loadStreetViewWithRetry]);
+  }, [apiKey, isLoading, routeLatLngs]);
 
   useEffect(() => {
-    if (routeLatLngs.length === 0) {
-      setImageUrl(null);
-      setCurrentLocation("");
+    if (!panoramaRef.current) {
       return;
     }
 
+    if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
+      panoramaRef.current.setVisible(false);
+      return;
+    }
+
+    panoramaRef.current.setVisible(true);
+
+    const scaledIndex = progress.fraction * (routeLatLngs.length - 1);
     const index = Math.max(
       0,
-      Math.min(
-        routeLatLngs.length - 1,
-        Math.floor(currentPosition * (routeLatLngs.length - 1)),
-      ),
+      Math.min(routeLatLngs.length - 1, Math.floor(scaledIndex)),
     );
 
-    void loadStreetViewWithRetry(index);
-  }, [routeLatLngs, currentPosition, loadStreetViewWithRetry]);
+    const position = routeLatLngs[index];
+    panoramaRef.current.setPosition(position);
+
+    const headingTarget = (() => {
+      if (index < routeLatLngs.length - 1) {
+        return routeLatLngs[index + 1];
+      }
+      if (index > 0) {
+        return routeLatLngs[index - 1];
+      }
+      return position;
+    })();
+
+    const heading = headingTarget === position ? 0 : bearing(position, headingTarget);
+    panoramaRef.current.setPov({ heading, pitch: 0 });
+    panoramaRef.current.setZoom(1);
+
+    const manager = mapsManagerRef.current;
+    if (manager?.isLoaded() && lastIndexRef.current !== index) {
+      lastIndexRef.current = index;
+      let cancelled = false;
+      const latLng = new google.maps.LatLng(position.lat, position.lng);
+
+      manager
+        .reverseGeocode(latLng)
+        .then((location) => {
+          if (cancelled) {
+            return;
+          }
+          setCurrentLocation(location);
+          onLocationUpdate?.(location);
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            console.warn("Failed to get location name:", err);
+          }
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    return undefined;
+  }, [progress.fraction, onLocationUpdate, routeLatLngs]);
+
+  const handleRetry = useCallback(() => {
+    if (!apiKey) {
+      return;
+    }
+    setError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, [apiKey]);
+
+  const missingApiKey = !apiKey;
+  const insufficientGeo = routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW;
 
   return (
     <div className="glass-card p-6 space-y-4">
@@ -269,27 +277,33 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-10">
             <div className="text-center">
               <div className="loading-spinner mx-auto mb-2" />
-              <p className="text-sm text-dark-400">
-                {retryCount > 0
-                  ? `Retrying Street View... (Attempt ${retryCount} of ${MAX_STREET_VIEW_RETRIES})`
-                  : "Loading Street View..."}
-              </p>
+              <p className="text-sm text-dark-400">Loading Street View...</p>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-20">
             <div className="text-center p-4 max-w-md">
               <div className="text-danger-400 mb-2">
-                <svg className="w-8 h-8 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  className="w-8 h-8 mx-auto"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
               </div>
               <p className="text-sm text-dark-400">{error}</p>
               <button
                 type="button"
-                onClick={handleManualRetry}
+                onClick={handleRetry}
                 className="mt-4 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-400 focus:outline-none focus-visible:ring-2"
               >
                 Try Again
@@ -298,23 +312,47 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           </div>
         )}
 
+        {missingApiKey && !error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-20 px-6 text-center">
+            <p className="text-sm text-dark-300">
+              Add your Google Maps API key in Settings to enable Street View.
+            </p>
+          </div>
+        )}
+
+        {!missingApiKey && insufficientGeo && !error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-20 px-6 text-center">
+            <p className="text-sm text-dark-300">
+              Street View needs GPX points with latitude/longitude.
+            </p>
+          </div>
+        )}
+
         <div
           ref={streetViewRef}
           className="w-full h-full"
-          style={{ display: isLoading || error ? 'none' : 'block' }}
+          style={{
+            display:
+              missingApiKey || insufficientGeo || error ? "none" : "block",
+          }}
         />
       </div>
 
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isRiding ? 'bg-success-400 animate-pulse' : 'bg-dark-600'}`} />
-          <span className="text-dark-400">
-            {isRiding ? 'Riding' : 'Paused'}
-          </span>
+          <div
+            className={`w-2 h-2 rounded-full ${
+              isRiding ? "bg-success-400 animate-pulse" : "bg-dark-600"
+            }`}
+          />
+          <span className="text-dark-400">{isRiding ? "Riding" : "Paused"}</span>
         </div>
 
         <div className="text-dark-400">
-          Position: {Math.round(currentPosition * 100)}%
+          Position:
+          {routeLatLngs.length >= MIN_POINTS_FOR_STREET_VIEW
+            ? ` ${progress.percent}%`
+            : " --"}
         </div>
       </div>
     </div>
