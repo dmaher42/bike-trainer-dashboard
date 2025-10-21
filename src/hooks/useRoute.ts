@@ -12,6 +12,7 @@ export interface UseRouteResult {
   route: Route;
   isLoading: boolean;
   error: string | null;
+  lastLoadedFile: string | null;
   /**
    * Loads a GPX file and replaces the current route with the parsed result.
    * Resolves with the parsed {@link Route} when successful.
@@ -22,6 +23,7 @@ export interface UseRouteResult {
 }
 
 const FALLBACK_ROUTE = buildRoute(20_000, 400, { name: "Rolling Hills" });
+const MAX_GPX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const ensureText = (value: string | ArrayBuffer | null): string => {
   if (typeof value === "string") {
@@ -40,11 +42,13 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
   const [route, setRoute] = useState<Route>(defaultRoute);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastLoadedFile, setLastLoadedFile] = useState<string | null>(null);
 
   const readerRef = useRef<FileReader | null>(null);
 
   useEffect(() => {
     setRoute(defaultRoute);
+    setLastLoadedFile(null);
   }, [defaultRoute]);
 
   useEffect(() => {
@@ -65,6 +69,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     setError(null);
     setIsLoading(false);
     setRoute(defaultRoute);
+    setLastLoadedFile(null);
   }, [defaultRoute]);
 
   const loadGpxFile = useCallback(
@@ -79,6 +84,23 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
 
         setIsLoading(true);
         setError(null);
+        setLastLoadedFile(null);
+
+        if (file.size > MAX_GPX_FILE_SIZE) {
+          const message = "File too large. Please select a GPX file smaller than 10MB.";
+          setError(message);
+          setIsLoading(false);
+          reject(new Error(message));
+          return;
+        }
+
+        if (!file.name.toLowerCase().endsWith(".gpx")) {
+          const message = "Invalid file type. Please select a GPX file.";
+          setError(message);
+          setIsLoading(false);
+          reject(new Error(message));
+          return;
+        }
 
         if (readerRef.current && readerRef.current.readyState === FileReader.LOADING) {
           readerRef.current.abort();
@@ -104,12 +126,14 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
             setRoute(parsed);
             setIsLoading(false);
             setError(null);
+            setLastLoadedFile(file.name);
             clearReader();
             resolve(parsed);
           } catch (err) {
             const message = err instanceof Error ? err.message : "Unable to parse GPX file";
             setError(message);
             setIsLoading(false);
+            setLastLoadedFile(null);
             clearReader();
             reject(err instanceof Error ? err : new Error(message));
           }
@@ -119,6 +143,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
           const message = reader.error?.message ?? "Failed to read GPX file";
           setError(message);
           setIsLoading(false);
+          setLastLoadedFile(null);
           clearReader();
           reject(new Error(message));
         };
@@ -127,6 +152,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
           const message = "GPX file reading was aborted";
           setError(message);
           setIsLoading(false);
+          setLastLoadedFile(null);
           clearReader();
           reject(new Error(message));
         };
@@ -137,6 +163,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
           const message = err instanceof Error ? err.message : "Failed to start reading GPX file";
           setError(message);
           setIsLoading(false);
+          setLastLoadedFile(null);
           clearReader();
           reject(err instanceof Error ? err : new Error(message));
         }
@@ -144,10 +171,25 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     []
   );
 
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setError(null);
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [error]);
+
   return {
     route,
     isLoading,
     error,
+    lastLoadedFile,
     loadGpxFile,
     resetRoute,
   };
