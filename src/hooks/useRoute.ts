@@ -17,9 +17,9 @@ export interface UseRouteResult {
    * Loads a GPX file and replaces the current route with the parsed result.
    * Resolves with the parsed {@link Route} when successful.
    */
-  loadGpxFile: (file: File) => Promise<Route>;
+  loadGPX: (file: File) => Promise<Route>;
   /** Restores the route state to the configured default. */
-  resetRoute: () => void;
+  resetToDefault: () => void;
 }
 
 const FALLBACK_ROUTE = buildRoute(20_000, 400, { name: "Rolling Hills" });
@@ -60,7 +60,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     };
   }, []);
 
-  const resetRoute = useCallback(() => {
+  const resetToDefault = useCallback(() => {
     const reader = readerRef.current;
     if (reader && reader.readyState === FileReader.LOADING) {
       reader.abort();
@@ -72,7 +72,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     setLastLoadedFile(null);
   }, [defaultRoute]);
 
-  const loadGpxFile = useCallback(
+  const loadGPX = useCallback(
     (file: File) =>
       new Promise<Route>((resolve, reject) => {
         if (!(file instanceof File)) {
@@ -190,8 +190,8 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     isLoading,
     error,
     lastLoadedFile,
-    loadGpxFile,
-    resetRoute,
+    loadGPX,
+    resetToDefault,
   };
 };
 
