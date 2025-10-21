@@ -1,166 +1,140 @@
-export interface GoogleMapsManagerOptions {
+export interface GoogleMapsConfig {
   apiKey: string;
+  mapId?: string;
 }
 
-const GOOGLE_MAPS_SCRIPT_ID = "google-maps-script";
+export interface StreetViewConfig {
+  position: google.maps.LatLng;
+  pov: google.maps.StreetViewPov;
+  zoom?: number;
+}
 
 export class GoogleMapsManager {
-  private static instance: GoogleMapsManager | null = null;
+  private static instance: GoogleMapsManager;
+  private mapsLoaded = false;
+  private apiKey: string;
+  private mapId?: string;
 
-  private scriptLoadingPromise: Promise<void> | null = null;
+  private constructor(config: GoogleMapsConfig) {
+    this.apiKey = config.apiKey;
+    this.mapId = config.mapId;
+  }
 
-  private constructor(private readonly options: GoogleMapsManagerOptions) {}
-
-  static getInstance(options: GoogleMapsManagerOptions): GoogleMapsManager {
+  static getInstance(config?: GoogleMapsConfig): GoogleMapsManager {
     if (!GoogleMapsManager.instance) {
-      GoogleMapsManager.instance = new GoogleMapsManager(options);
-      return GoogleMapsManager.instance;
+      if (!config) {
+        throw new Error('GoogleMapsManager requires config on first instantiation');
+      }
+      GoogleMapsManager.instance = new GoogleMapsManager(config);
     }
-
-    if (GoogleMapsManager.instance.options.apiKey !== options.apiKey) {
-      GoogleMapsManager.instance = new GoogleMapsManager(options);
-    }
-
     return GoogleMapsManager.instance;
   }
 
   async loadGoogleMaps(): Promise<void> {
-    if (typeof window === "undefined") {
-      return;
-    }
+    if (this.mapsLoaded) return;
 
-    if (this.isLoaded()) {
-      return;
-    }
+    return new Promise((resolve, reject) => {
+      // Check if already loaded
+      if (window.google && window.google.maps) {
+        this.mapsLoaded = true;
+        resolve();
+        return;
+      }
 
-    if (this.scriptLoadingPromise) {
-      return this.scriptLoadingPromise;
-    }
-
-    const existingScript = document.getElementById(
-      GOOGLE_MAPS_SCRIPT_ID,
-    ) as HTMLScriptElement | null;
-
-    if (existingScript) {
-      this.scriptLoadingPromise = new Promise((resolve, reject) => {
-        const handleLoad = () => {
-          existingScript.removeEventListener("load", handleLoad);
-          existingScript.removeEventListener("error", handleError);
-          resolve();
-        };
-
-        const handleError = () => {
-          existingScript.removeEventListener("load", handleLoad);
-          existingScript.removeEventListener("error", handleError);
-          this.scriptLoadingPromise = null;
-          reject(new Error("Failed to load Google Maps"));
-        };
-
-        if (this.isLoaded()) {
-          resolve();
-          return;
-        }
-
-        existingScript.addEventListener("load", handleLoad);
-        existingScript.addEventListener("error", handleError);
-      });
-
-      return this.scriptLoadingPromise;
-    }
-
-    this.scriptLoadingPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.id = GOOGLE_MAPS_SCRIPT_ID;
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${this.options.apiKey}&libraries=geometry`;
+      // Create script element
+      const script = document.createElement('script');
       script.async = true;
       script.defer = true;
-      script.onload = () => {
-        script.onload = null;
-        script.onerror = null;
+      
+      // Build API URL
+      const params = new URLSearchParams({
+        key: this.apiKey,
+        libraries: 'geometry',
+        callback: 'initGoogleMaps',
+        v: 'weekly',
+      });
+
+      if (this.mapId) {
+        params.append('map_id', this.mapId);
+      }
+
+      script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+      
+      // Set up callback
+      window.initGoogleMaps = () => {
+        this.mapsLoaded = true;
         resolve();
       };
+
+      // Handle errors
       script.onerror = () => {
-        script.onload = null;
-        script.onerror = null;
-        this.scriptLoadingPromise = null;
-        reject(new Error("Failed to load Google Maps"));
+        reject(new Error('Failed to load Google Maps API'));
       };
 
+      // Add to document
       document.head.appendChild(script);
     });
-
-    return this.scriptLoadingPromise;
   }
 
   isLoaded(): boolean {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return Boolean(window.google?.maps?.StreetViewPanorama);
+    return this.mapsLoaded;
   }
 
-  async reverseGeocode(
-    location: google.maps.LatLng | google.maps.LatLngLiteral,
-  ): Promise<string> {
-    if (!this.isLoaded()) {
-      throw new Error("Google Maps has not finished loading");
-    }
-
+  geocodeAddress(address: string): Promise<google.maps.LatLng> {
     return new Promise((resolve, reject) => {
+      if (!this.mapsLoaded) {
+        reject(new Error('Google Maps not loaded'));
+        return;
+      }
+
       const geocoder = new google.maps.Geocoder();
-
-      geocoder.geocode({ location }, (results, status) => {
-        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
-          reject(new Error("Unable to determine location name"));
-          return;
-        }
-
-        resolve(results[0]?.formatted_address ?? "");
-      });
-    });
-  }
-
-  async geocodeAddress(address: string): Promise<google.maps.LatLng> {
-    if (!this.isLoaded()) {
-      throw new Error("Google Maps has not finished loading");
-    }
-
-    return new Promise((resolve, reject) => {
-      const geocoder = new google.maps.Geocoder();
-
       geocoder.geocode({ address }, (results, status) => {
-        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
-          reject(new Error("Unable to determine coordinates for the given address"));
-          return;
+        if (status === google.maps.GeocoderStatus.OK && results[0]) {
+          resolve(results[0].geometry.location);
+        } else {
+          reject(new Error(`Geocoding failed: ${status}`));
         }
-
-        const location = results[0]?.geometry?.location;
-        if (!location) {
-          reject(new Error("Unable to determine coordinates for the given address"));
-          return;
-        }
-
-        resolve(location);
       });
     });
   }
 
-  calculateDistance(
-    from: google.maps.LatLng | google.maps.LatLngLiteral,
-    to: google.maps.LatLng | google.maps.LatLngLiteral,
-  ): number {
-    if (!this.isLoaded()) {
-      throw new Error("Google Maps has not finished loading");
-    }
+  reverseGeocode(position: google.maps.LatLng): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!this.mapsLoaded) {
+        reject(new Error('Google Maps not loaded'));
+        return;
+      }
 
-    if (!google.maps.geometry?.spherical) {
-      throw new Error("Google Maps geometry library is not available");
-    }
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: position }, (results, status) => {
+        if (status === google.maps.GeocoderStatus.OK && results[0]) {
+          resolve(results[0].formatted_address);
+        } else {
+          reject(new Error(`Reverse geocoding failed: ${status}`));
+        }
+      });
+    });
+  }
 
-    return google.maps.geometry.spherical.computeDistanceBetween(
-      from as google.maps.LatLng,
-      to as google.maps.LatLng,
-    );
+  calculateDistance(from: google.maps.LatLng, to: google.maps.LatLng): number {
+    if (!this.mapsLoaded) {
+      throw new Error('Google Maps not loaded');
+    }
+    return google.maps.geometry.spherical.computeDistanceBetween(from, to);
+  }
+
+  interpolateAlongPath(path: google.maps.LatLng[], fraction: number): google.maps.LatLng {
+    if (!this.mapsLoaded) {
+      throw new Error('Google Maps not loaded');
+    }
+    return google.maps.geometry.spherical.interpolate(path[0], path[path.length - 1], fraction);
+  }
+}
+
+// Type declarations for global window object
+declare global {
+  interface Window {
+    initGoogleMaps: () => void;
+    google: any;
   }
 }
