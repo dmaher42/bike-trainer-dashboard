@@ -1,54 +1,52 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Sample } from "./types";
+import React, { useState, useEffect } from "react";
+import { BluetoothDevice, Metrics, Sample, WorkoutPlan } from "./types";
+import { useBluetooth } from "./hooks/useBluetooth";
 import { useMetrics } from "./hooks/useMetrics";
+import { useRoute } from "./hooks/useRoute";
+import { useWorkout } from "./hooks/useWorkout";
 import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
-import { useRoute } from "./hooks/useRoute";
-import VirtualMap from "./components/VirtualMap";
-import RouteLoader from "./components/RouteLoader";
-import { GPXDebugPanel } from "./components/GPXDebugPanel";
+import { VirtualMap } from "./components/VirtualMap";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
-import { MapViewDisplay } from "./components/MapViewDisplay";
+import { StreetViewPlaceholder } from "./components/LoadingStates";
+import { WorkoutPanel } from "./components/WorkoutPanel";
+import { EnvDiagnostics } from "./components/EnvDiagnostics";
+import { BluetoothConnectPanel } from "./components/BluetoothConnectPanel";
+import { RouteLoader } from "./components/RouteLoader";
+import { FixBluetoothModal } from "./components/FixBluetoothModal";
 import { ViewToggle } from "./components/ViewToggle";
-import { useSettings } from "./hooks/useSettings";
-import useBluetooth from "./hooks/useBluetooth";
-import useWorkout from "./hooks/useWorkout";
-import { useTrainerControl } from "./hooks/useTrainerControl";
-import { useRideHistory } from "./hooks/useRideHistory";
-import { ModernHeader } from "./components/ModernHeader";
-import { ModernNavigation } from "./components/ModernNavigation";
-import { ModernControls } from "./components/ModernControls";
-import { LoadingSpinner } from "./components/LoadingStates";
-import { BluetoothStatusDisplay } from "./components/BluetoothStatusDisplay";
-import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
-import FixBluetoothModal from "./components/FixBluetoothModal";
-
-const DEVICE_KEYS = ["ftms", "cps", "hr"] as const;
-
-type DeviceKey = (typeof DEVICE_KEYS)[number];
-
-const DEVICE_LABELS: Record<DeviceKey, string> = {
-  ftms: "Smart Trainer",
-  cps: "Cadence Sensor",
-  hr: "Heart Rate Monitor",
-};
 
 function App() {
-  type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
-
   const [sim, setSim] = useState(false);
-  const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
   const [rideOn, setRideOn] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [waypoints, setWaypoints] = useState<{ x: number; y: number }[]>([]);
-  const [isFixModalOpen, setIsFixModalOpen] = useState(false);
-  const [isRefreshingEnv, setIsRefreshingEnv] = useState(false);
-  const [currentView, setCurrentView] = useState<"street" | "map" | "virtual">("virtual");
-  const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>("");
-  const [currentLocation, setCurrentLocation] = useState<string>("");
-
-  const { settings, updateSetting } = useSettings();
-
+  const [showFix, setShowFix] = useState(false);
+  const [copied, setCopied] = useState("");
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [currentView, setCurrentView] = useState<'virtual' | 'street' | 'mapbox' | 'osm'>('virtual');
+  
+  const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
+  const [currentLocation, setCurrentLocation] = useState<string>('');
+  const [mapboxApiKey, setMapboxApiKey] = useState<string>('');
+  const [mapboxSettings, setMapboxSettings] = useState({
+    showBuildings: true,
+    showTraffic: false,
+    show3D: true,
+    animationSpeed: 1.0,
+    autoFollow: true,
+    centerCoords: [-122.4194, 37.7749],
+    radiusKm: 1.0
+  });
+  
+  const {
+    env,
+    devices,
+    status,
+    refreshEnv,
+    connectFTMS,
+    connectCPS,
+    connectHR,
+  } = useBluetooth();
+  
   const {
     metrics,
     samples,
@@ -56,8 +54,9 @@ function App() {
     startRide,
     stopRide,
     resetRide,
+    updateMetrics,
   } = useMetrics(sim, rideOn);
-
+  
   const {
     route,
     isLoading,
@@ -65,107 +64,25 @@ function App() {
     lastLoadedFile,
     loadGPX,
     resetToDefault,
-    clearError,
   } = useRoute();
-
+  
   const {
-    environment: env,
-    connectedDevices: devices,
-    statuses,
-    errors,
-    disconnect,
-    refreshEnvironment,
-    connectFTMS,
-    connectCPS,
-    connectHR,
-    connectionState,
-  } = useBluetooth();
-  const { isActive: activeWorkout, targetPower, targetCadence } = useWorkout();
-  const { saveRide } = useRideHistory();
+    workouts,
+    activeWorkout,
+    currentInterval,
+    intervalTime,
+    targetPower,
+    targetCadence,
+    startWorkout,
+    stopWorkout,
+  } = useWorkout();
 
-  const ftmsDevice = devices.ftms;
-  const { setTargetPower, initializeControl } = useTrainerControl(ftmsDevice);
-
-  const bluetoothStatusMessage = useMemo(() => {
-    const activeConnection = DEVICE_KEYS.find((key) =>
-      ["connecting", "requesting"].includes(statuses[key] ?? ""),
-    );
-    if (activeConnection) {
-      return `Connecting to ${DEVICE_LABELS[activeConnection]}...`;
-    }
-
-    const deviceError = DEVICE_KEYS.find((key) => Boolean(errors[key]));
-    if (deviceError) {
-      return `${DEVICE_LABELS[deviceError]}: ${errors[deviceError]}`;
-    }
-
-    const connectedCount = DEVICE_KEYS.filter((key) => devices[key]?.connected).length;
-    if (connectedCount > 0) {
-      return `${connectedCount} device${connectedCount > 1 ? "s" : ""} connected`;
-    }
-
-    if (env.canUse === false) {
-      return "Bluetooth unavailable in this environment.";
-    }
-
-    return null;
-  }, [devices, env.canUse, errors, statuses]);
-
-  const routeProgress = useMemo(() => {
-    if (!Number.isFinite(metrics.distance)) {
-      return 0;
-    }
-
-    return metrics.distance / 5;
-  }, [metrics.distance]);
-
-  const handleDisconnectAll = useCallback(() => {
-    DEVICE_KEYS.forEach((key) => {
-      const device = devices[key];
-      if (device?.connected) {
-        disconnect(key);
-      }
-    });
-  }, [devices, disconnect]);
-
-  const handleRefreshEnv = useCallback(async () => {
-    setIsRefreshingEnv(true);
-    try {
-      await refreshEnvironment();
-    } finally {
-      setIsRefreshingEnv(false);
-    }
-  }, [refreshEnvironment]);
-
-  const handleSimToggle = useCallback(
-    (enabled: boolean) => {
-      setSim(enabled);
-      updateSetting("autoStartRide", enabled);
-    },
-    [updateSetting],
-  );
-
+  // Auto-enable simulator if Bluetooth is not available
   useEffect(() => {
-    setSim(settings.autoStartRide);
-  }, [settings.autoStartRide]);
-
-  useEffect(() => {
-    if (currentView !== "street") {
-      setCurrentLocation("");
+    if (env.canUse === false && !sim) {
+      setSim(true);
     }
-  }, [currentView]);
-
-  useEffect(() => {
-    if (ftmsDevice?.connected) {
-      void initializeControl(ftmsDevice);
-    }
-  }, [ftmsDevice?.connected, ftmsDevice, initializeControl]);
-
-  useEffect(() => {
-    if (activeWorkout && targetPower && ftmsDevice?.connected) {
-      void setTargetPower(targetPower);
-    }
-  }, [activeWorkout, targetPower, ftmsDevice?.connected, ftmsDevice, setTargetPower]);
+  }, [env.canUse, sim]);
 
   const handleStartRide = () => {
     if (startRide()) {
@@ -176,10 +93,6 @@ function App() {
   const handleStopRide = () => {
     if (stopRide()) {
       setRideOn(false);
-      if (samples.length > 0 && elapsed > 60) {
-        saveRide(samples, elapsed, metrics.distance);
-        setStatus("Ride saved!");
-      }
     }
   };
 
@@ -189,283 +102,261 @@ function App() {
     }
   };
 
-  const handleRouteClick = useCallback((point: { x: number; y: number }) => {
-    setWaypoints((prev) => [...prev, point]);
-    setStatus(`Waypoint added at (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`);
-  }, []);
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied("Copied!");
+      setTimeout(() => setCopied(""), 1500);
+    } catch {
+      setCopied("Couldn't copy—select manually");
+      setTimeout(() => setCopied(""), 2500);
+    }
+  };
+
+  const views = [
+    { id: 'virtual', label: 'Virtual Map', icon: '🚴' },
+    { id: 'street', label: 'Street View', icon: '🏙️' },
+    { id: 'mapbox', label: 'Mapbox 3D', icon: '🗺️' },
+    { id: 'osm', label: 'OpenStreetMap', icon: '🌍' },
+  ];
 
   return (
-    <div className="min-h-screen bg-dark-950 text-dark-50">
-      {/* Background elements */}
-      <div className="fixed inset-0 bg-gradient-to-br from-primary-900/10 via-transparent to-success-900/10 pointer-events-none" />
+    <div className="min-h-screen bg-neutral-950 text-neutral-100">
+      <div className="max-w-6xl mx-auto p-6">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-semibold">Bike Trainer Dashboard</h1>
+            <p className="text-neutral-400 text-sm">
+              Connect BLE FTMS/Cycling Power & Heart Rate. If Bluetooth is blocked, the Simulator runs automatically.
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap items-center">
+            <label className="px-3 py-2 rounded-2xl text-sm border border-neutral-700 flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={sim} onChange={(e) => setSim(e.target.checked)} />
+              Simulator
+            </label>
+          </div>
+        </header>
 
-      <div className="relative z-10">
-        <ModernHeader env={env} devices={devices} sim={sim} onSimToggle={handleSimToggle} />
-        <ModernNavigation activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab as AppTab)} />
+        <div className="mt-4 flex gap-2 border-b border-neutral-800">
+          {views.map((view) => (
+            <button
+              key={view.id}
+              onClick={() => setActiveTab(view.id)}
+              className={`px-4 py-2 text-sm font-medium ${
+                activeTab === view.id
+                  ? "text-emerald-400 border-b-2 border-emerald-400"
+                  : "text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              <span className="mr-2">{view.icon}</span>
+              {view.label}
+            </button>
+          ))}
+        </div>
 
-        <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <BluetoothStatusDisplay
-              env={env}
-              devices={devices}
-              onRefresh={handleRefreshEnv}
-              isRefreshing={isRefreshingEnv}
-            />
-            <BluetoothConnectPanel
-              env={env}
-              devices={devices}
-              status={bluetoothStatusMessage ?? undefined}
-              onConnectFTMS={connectFTMS}
-              onConnectCPS={connectCPS}
-              onConnectHR={connectHR}
-              onRefreshEnv={handleRefreshEnv}
-              onShowFix={() => setIsFixModalOpen(true)}
-              onDisconnectDevice={disconnect}
-              onDisconnectAll={handleDisconnectAll}
-              isConnecting={connectionState.isConnecting}
+        <BluetoothConnectPanel
+          env={env}
+          devices={import('./types').BluetoothDevice}
+          status={status}
+          onConnectFTMS={connectFTMS}
+          onConnectCPS={connectCPS}
+          onConnectHR={connectHR}
+          onRefreshEnv={refreshEnv}
+          onShowFix={() => setShowFix(true)}
+        />
+
+        <EnvDiagnostics env={env} />
+
+        {activeTab === "dashboard" && (
+          <div className="space-y-6">
+            {/* View Toggle */}
+            <div className="flex justify-center">
+              <ViewToggle
+                currentView={currentView}
+                onViewChange={setCurrentView}
+                disabled={!googleMapsApiKey && currentView === 'street'}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Metrics Card */}
+              <div className="lg:col-span-1 space-y-6">
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
+                  <Metric label="Caden" value={metrics.cadence} unit="rpm" target={targetCadence} />
+                  <Metric label="Speed" value={metrics.speed} unit="kph" />
+                  <Metric label="Distance" value={metrics.distance} unit="km" />
+                  <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
+                  <Metric label="Elapsed" value={elapsed} unit="" />
+                </div>
+                <div className="mt-4 flex gap-2 flex-wrap">
+                  {!rideOn ? (
+                    <button onClick={handleStartRide} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500">Start Ride</button>
+                  ) : (
+                    <button onClick={handleStopRide} className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500">Pause</button>
+                  )}
+                  <button onClick={handleResetRide} className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700">Reset</button>
+                  <button
+                    onClick={() => downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)}
+                    className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700"
+                  >
+                    Export CSV
+                  </button>
+                </div>
+                <p className="mt-3 text-neutral-400 text-sm">{status}</p>
+              </div>
+
+              {/* View Display */}
+              <div className="lg:col-span-2">
+                {currentView === 'virtual' && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-medium text-neutral-200">Virtual Map (5 km loop)</h3>
+                      <RouteLoader
+                        route={route}
+                        isLoading={isLoading}
+                        error={error}
+                        onLoadGPX={loadGPX}
+                        onResetToDefault={resetToDefault}
+                      />
+                    </div>
+                    <VirtualMap
+                      route={route}
+                      metrics={metrics}
+                      onRouteClick={handleRouteClick}
+                      showRouteInfo={true}
+                    />
+                  </div>
+                )}
+
+                {currentView === 'street' && googleMapsApiKey && (
+                  <StreetViewDisplay
+                    route={route}
+                    currentPosition={metrics.distance / 5} // Assuming 5km loop
+                    isRiding={rideOn}
+                    apiKey={googleMapsApiKey}
+                    onLocationUpdate={setCurrentLocation}
+                    onError={(error) => setStatus(`Street View error: ${error}`)}
+                  />
+                )}
+
+                {currentView === 'street' && !googleMapsApiKey && (
+                  <StreetViewPlaceholder 
+                    onAddApiKey={() => setActiveTab('settings')}
+                    title="Street View Unavailable"
+                    description="Add your Google Maps API key to enable Street View functionality"
+                  />
+                )}
+
+                {currentView === 'mapbox' && mapboxApiKey && (
+                  <div className="text-center text-neutral-500 p-4">
+                    Mapbox view would be implemented here
+                  </div>
+                )}
+
+                {currentView === 'osm' && (
+                  <div className="text-center text-neutral-500 p-4">
+                    OpenStreetMap view would be implemented here
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        )}
+
+        {activeTab === "workouts" && (
+          <div className="mt-6">
+            <WorkoutPanel
+              workouts={workouts}
+              activeWorkout={activeWorkout}
+              currentInterval={currentInterval}
+              intervalTime={intervalTime}
+              onStartWorkout={startWorkout}
+              onStopWorkout={stopWorkout}
             />
           </div>
+        )}
 
-          {activeTab === "dashboard" && (
-            <>
-              <section className="glass-card p-6">
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-semibold text-dark-50">Virtual Route</h2>
-                    <p className="text-dark-400 text-sm">
-                      Follow immersive courses, add waypoints, and let the trainer adjust automatically.
-                    </p>
-                  </div>
-                  <RouteLoader
-                    route={route}
-                    isLoading={isLoading}
-                    error={error}
-                    onLoadGPX={loadGPX}
-                    onResetToDefault={resetToDefault}
-                  />
-                </div>
-
-                {lastLoadedFile && (
-                  <div className="mt-2 text-sm text-success-400">
-                    Route loaded: {lastLoadedFile}
-                  </div>
-                )}
-
-                {waypoints.length > 0 && (
-                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-dark-300">
-                    <span>Waypoints: {waypoints.length}</span>
-                    <button
-                      onClick={() => {
-                        setWaypoints([]);
-                        setStatus("Waypoints cleared");
-                      }}
-                      className="btn-secondary px-4 py-2 text-xs font-medium"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-
-                <p className="mt-4 text-sm text-dark-400">
-                  Tip: Load a .gpx file to follow a real-world route.
-                </p>
-
-                <div className="mt-6">
-                  <GPXDebugPanel route={route} error={error} onClearError={clearError} />
-                </div>
-              </section>
-
-              <div className="space-y-6">
-                <div className="flex justify-center">
-                  <ViewToggle
-                    currentView={currentView}
-                    onViewChange={setCurrentView}
-                    disabled={!googleMapsApiKey}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                  <div className="lg:col-span-1 space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
-                      <Metric
-                        label="Cadence"
-                        value={metrics.cadence}
-                        unit="rpm"
-                        target={targetCadence}
-                      />
-                      <Metric label="Speed" value={metrics.speed} unit="kph" />
-                      <Metric label="Distance" value={metrics.distance} unit="km" />
-                      <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
-                      <Metric label="Elapsed" value={elapsed} unit="" />
-                    </div>
-
-                    <div className="glass-card p-6">
-                      <ModernControls
-                        rideOn={rideOn}
-                        onStartRide={handleStartRide}
-                        onStopRide={handleStopRide}
-                        onResetRide={handleResetRide}
-                        onExportCSV={() =>
-                          downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)
-                        }
-                        samples={samples}
-                      />
-                    </div>
-
-                    {status && (
-                      <div className="glass-card p-4">
-                        <div className="flex items-center gap-3">
-                          <LoadingSpinner size="sm" />
-                          <span className="text-dark-300">{status}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {currentView === "street" && currentLocation && (
-                      <div className="glass-card p-4">
-                        <h4 className="text-sm font-medium text-dark-200">Current Location</h4>
-                        <p className="mt-1 text-sm text-dark-400">{currentLocation}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="lg:col-span-2 space-y-4">
-                    {currentView === "street" && googleMapsApiKey && (
-                      <StreetViewDisplay
-                        route={route}
-                        currentPosition={routeProgress}
-                        isRiding={rideOn}
-                        onLocationUpdate={setCurrentLocation}
-                        onError={(errorMessage) =>
-                          setStatus(`Street View error: ${errorMessage}`)
-                        }
-                      />
-                    )}
-
-                    {currentView === "map" && googleMapsApiKey && (
-                      <MapViewDisplay
-                        route={route}
-                        currentPosition={routeProgress}
-                        apiKey={googleMapsApiKey}
-                        height="400px"
-                        showTraffic={false}
-                      />
-                    )}
-
-                    {currentView === "virtual" && (
-                      <VirtualMap
-                        route={route}
-                        metrics={metrics}
-                        waypoints={waypoints}
-                        onRouteClick={handleRouteClick}
-                        showRouteInfo={true}
-                      />
-                    )}
-
-                    {!googleMapsApiKey && (
-                      <div className="glass-card p-8 text-center">
-                        <div className="text-4xl mb-4">🗺️</div>
-                        <h3 className="text-lg font-medium text-dark-200 mb-2">
-                          Google Maps Required
-                        </h3>
-                        <p className="text-dark-400 mb-4">
-                          Add your Google Maps API key in Settings to enable Street View and Map View
-                        </p>
-                        <button onClick={() => setActiveTab("settings")} className="btn-primary">
-                          Go to Settings
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeTab === "settings" && (
-            <section className="glass-card p-6">
-              <h2 className="text-2xl font-semibold text-dark-50">Settings</h2>
-              <p className="text-sm text-dark-400 mt-1">
-                Configure how the dashboard behaves and personalize your experience.
-              </p>
-
-              <div className="mt-6 grid gap-6 md:grid-cols-2">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-dark-200">Data Recording</h3>
-                  <label className="flex items-center gap-3 text-dark-300">
-                    <input
-                      type="checkbox"
-                      checked={settings.dataRecording}
-                      onChange={(e) => updateSetting("dataRecording", e.target.checked)}
-                    />
-                    <span>Record ride data automatically</span>
-                  </label>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-dark-200">Units</h3>
-                  <div className="flex flex-col gap-3 text-dark-300">
-                    <label className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="units"
-                        value="metric"
-                        checked={settings.units === "metric"}
-                        onChange={() => updateSetting("units", "metric")}
-                      />
-                      <span>Metric (km/h, km)</span>
-                    </label>
-                    <label className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="units"
-                        value="imperial"
-                        checked={settings.units === "imperial"}
-                        onChange={() => updateSetting("units", "imperial")}
-                      />
-                      <span>Imperial (mph, miles)</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="space-y-4 md:col-span-2">
-                  <h3 className="text-lg font-medium text-dark-200">Display</h3>
-                  <label className="flex items-center gap-3 text-dark-300">
-                    <input
-                      type="checkbox"
-                      checked={settings.showAnimations}
-                      onChange={(e) => updateSetting("showAnimations", e.target.checked)}
-                    />
-                    <span>Show animations</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
-                <h2 className="text-lg font-medium mb-3">Google Maps Integration</h2>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="font-medium mb-2">Google Maps API Key</h3>
-                    <input
-                      type="password"
-                      value={googleMapsApiKey}
-                      onChange={(e) => setGoogleMapsApiKey(e.target.value)}
-                      placeholder="Enter your Google Maps API key"
-                      className="modern-input w-full"
-                    />
-                    <p className="text-xs text-neutral-400 mt-1">
-                      Get an API key from the Google Cloud Console with Maps JavaScript API and Street View Static API enabled
-                    </p>
-                  </div>
-                </div>
+        {activeTab === "analysis" && (
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <section className="border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+              <h2 className="text-lg font-medium mb-3">Power Analysis</h2>
+              <div className="h-64">
+                Analysis chart would be implemented here
               </div>
             </section>
-          )}
-        </main>
-      </div>
+            <section className="border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+              <h2 className="text-lg font-medium mb-3">Heart Rate Analysis</h2>
+              <div className="h-64">
+                Analysis chart would be implemented here
+              </div>
+            </section>
+            <section className="border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+              <h2 className="text-lg font-medium mb-3">Cadence Analysis</h2>
+              <div className="h-64">
+                Analysis chart would be implemented here
+              </div>
+            </section>
+            <section className="border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+              <h2 className="text-lg font-medium mb-3">Speed Analysis</h2>
+              <div className="h-64">
+                Analysis chart would be implemented here
+              </div>
+            </section>
+          </div>
+        )}
 
-      <FixBluetoothModal isOpen={isFixModalOpen} onClose={() => setIsFixModalOpen(false)} />
+        {/* Session Table (recent rows) */}
+        <section className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+          <h2 className="text-lg font-medium mb-3">Recent Samples</h2>
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="text-neutral-400">
+                <tr>
+                  <th className="text-left p-2">Time</th>
+                  <th className="text-right p-2">Power</th>
+                  <th className="text-right p-2">Cadence</th>
+                  <th className="text-right p-2">Speed</th>
+                  <th className="text-right p-2">Distance</th>
+                  <th className="text-right p-2">HR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {samples.slice(-30).map((r, i) => (
+                  <tr key={i} className="border-t border-neutral-800">
+                    <td className="p-2">{new Date(r.ts).toLocaleTimeString()}</td>
+                    <td className="p-2 text-right">{r.power?.toFixed?.(0)}</td>
+                    <td className="p-2 text-right">{r.cadence?.toFixed?.(0)}</td>
+                    <td className="p-2 text-right">{r.speed?.toFixed?.(1)}</td>
+                    <td className="p-2 text-right">{r.distance?.toFixed?.(3)}</td>
+                    <td className="p-2 text-right">{r.hr ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer className="mt-6 text-xs text-neutral-500 space-y-1">
+          <p>
+            Browser support: Chrome/Edge desktop. Requires HTTPS or localhost for Web Bluetooth. If Tacx Bushido lacks BLE FTMS/CPS, use Simulator or pair a BLE sensor.
+          </p>
+          <p>
+            If you are embedding this page, ensure Permissions-Policy allows bluetooth (e.g., header <code>Permissions-Policy: bluetooth=(self)</code> or iframe attribute <code>allow="bluetooth"</code>), and avoid sandbox flags that block it.
+          </p>
+        </footer>
+
+        {showFix && (
+          <FixBluetoothModal
+            env={env}
+            onClose={() => setShowFix(false)}
+            onCopy={handleCopy}
+            copied={copied}
+            onRefresh={refreshEnv}
+          />
+        )}
+      </div>
     </div>
   );
 }
