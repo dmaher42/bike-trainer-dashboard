@@ -6,15 +6,15 @@ import { useRoute } from "./hooks/useRoute";
 import { useWorkout } from "./hooks/useWorkout";
 import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
-import { VirtualMap } from "./components/VirtualMap";
+import VirtualMap from "./components/VirtualMap";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
 import { StreetViewPlaceholder } from "./components/LoadingStates";
-import { WorkoutPanel } from "./components/WorkoutPanel";
-import { EnvDiagnostics } from "./components/EnvDiagnostics";
-import { BluetoothConnectPanel } from "./components/BluetoothConnectPanel";
-import { RouteLoader } from "./components/RouteLoader";
-import { FixBluetoothModal } from "./components/FixBluetoothModal";
-import { ViewToggle } from "./components/ViewToggle";
+import WorkoutPanel from "./components/WorkoutPanel";
+import EnvDiagnostics from "./components/EnvDiagnostics";
+import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
+import RouteLoader from "./components/RouteLoader";
+import FixBluetoothModal from "./components/FixBluetoothModal";
+import ViewToggle from "./components/ViewToggle";
 
 function App() {
   const [sim, setSim] = useState(false);
@@ -113,6 +113,11 @@ function App() {
     }
   };
 
+  const handleRouteClick = (point: { x: number; y: number }) => {
+    // Optional: handle route click events
+    console.log('Route clicked at:', point);
+  };
+
   const views = [
     { id: 'virtual', label: 'Virtual Map', icon: '🚴' },
     { id: 'street', label: 'Street View', icon: '🏙️' },
@@ -157,7 +162,7 @@ function App() {
 
         <BluetoothConnectPanel
           env={env}
-          devices={import('./types').BluetoothDevice}
+          devices={devices}
           status={status}
           onConnectFTMS={connectFTMS}
           onConnectCPS={connectCPS}
@@ -166,7 +171,7 @@ function App() {
           onShowFix={() => setShowFix(true)}
         />
 
-        <EnvDiagnostics env={env} />
+        <EnvDiagnostics environment={env} />
 
         {activeTab === "dashboard" && (
           <div className="space-y-6">
@@ -262,7 +267,7 @@ function App() {
                 )}
               </div>
             </div>
-          )}
+          </div>
         )}
 
         {activeTab === "workouts" && (
