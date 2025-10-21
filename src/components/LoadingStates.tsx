@@ -5,19 +5,19 @@ export interface LoadingSpinnerProps {
   className?: string;
 }
 
-export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ 
+export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   size = 'md',
-  className = ''
+  className = '',
 }) => {
   const sizeClasses = {
     sm: 'w-4 h-4',
     md: 'w-8 h-8',
     lg: 'w-12 h-12',
-  };
+  } as const;
 
   return (
-    <div 
-      className={`loading-spinner ${sizeClasses[size]} ${className}`}
+    <div
+      className={`loading-spinner ${sizeClasses[size]} ${className}`.trim()}
       role="status"
       aria-label="Loading"
     >
@@ -28,10 +28,14 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
           border-radius: 50%;
           animation: spin 1s linear infinite;
         }
-        
+
         @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
     </div>
@@ -43,16 +47,18 @@ export interface SkeletonCardProps {
   className?: string;
 }
 
-export const SkeletonCard: React.FC<SkeletonCardProps> = ({ 
+export const SkeletonCard: React.FC<SkeletonCardProps> = ({
   lines = 3,
-  className = ''
+  className = '',
 }) => {
   return (
-    <div className={`glass-card p-6 space-y-3 ${className}`}>
+    <div className={`glass-card p-6 space-y-3 ${className}`.trim()}>
       {Array.from({ length: lines }).map((_, index) => (
         <div key={index} className="space-y-2">
-          <div className="h-4 bg-dark-700 rounded animate-pulse" />
-          {index < lines - 1 && <div className="h-3 bg-dark-700 rounded animate-pulse" />}
+          <div className="h-4 bg-neutral-700 rounded animate-pulse" />
+          {index < lines - 1 && (
+            <div className="h-3 bg-neutral-700 rounded animate-pulse" />
+          )}
         </div>
       ))}
     </div>
@@ -75,20 +81,20 @@ export interface StreetViewLoaderProps {
   subMessage?: string;
 }
 
-export const StreetViewLoader: React.FC<StreetViewLoaderProps> = ({ 
-  message = "Loading Street View...",
-  subMessage = "Please wait while we load the view"
+export const StreetViewLoader: React.FC<StreetViewLoaderProps> = ({
+  message = 'Loading Street View...',
+  subMessage = 'Please wait while we load the view',
 }) => {
   return (
     <div className="flex flex-col items-center justify-center p-6">
       <div className="relative">
         <LoadingSpinner size="lg" />
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-16 h-16 border-4 border-primary-500/30 rounded-full animate-ping" />
+          <div className="w-16 h-16 border-4 border-primary-500/30 rounded-full animate-pulse" />
         </div>
       </div>
-      <p className="text-sm text-dark-400 mt-4">{message}</p>
-      <p className="text-xs text-dark-500">{subMessage}</p>
+      <p className="text-sm text-neutral-400 mt-4">{message}</p>
+      <p className="text-xs text-neutral-500">{subMessage}</p>
     </div>
   );
 };
@@ -100,22 +106,32 @@ export interface StreetViewErrorProps {
   onDismiss?: () => void;
 }
 
-export const StreetViewError: React.FC<StreetViewErrorProps> = ({ 
-  error, 
-  onRetry, 
+export const StreetViewError: React.FC<StreetViewErrorProps> = ({
+  error,
+  onRetry,
   retryCount = 0,
-  onDismiss
+  onDismiss,
 }) => {
   return (
     <div className="flex flex-col items-center justify-center p-6 max-w-md">
       <div className="text-danger-400 mb-4">
-        <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <svg
+          className="w-12 h-12 mx-auto"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
         </svg>
       </div>
       <h3 className="text-lg font-medium text-danger-400 mb-2">Street View Error</h3>
-      <p className="text-sm text-dark-400 text-center mb-4">{error}</p>
-      
+      <p className="text-sm text-neutral-400 text-center mb-4">{error}</p>
+
       <div className="flex gap-2 justify-center">
         {onRetry && retryCount < 3 && (
           <button
@@ -125,11 +141,11 @@ export const StreetViewError: React.FC<StreetViewErrorProps> = ({
             Retry ({3 - retryCount} attempts left)
           </button>
         )}
-        
+
         {onDismiss && (
           <button
             onClick={onDismiss}
-            className="px-4 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 transition-colors"
+            className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 transition-colors"
           >
             Dismiss
           </button>
@@ -147,18 +163,15 @@ export interface StreetViewPlaceholderProps {
 
 export const StreetViewPlaceholder: React.FC<StreetViewPlaceholderProps> = ({
   onAddApiKey,
-  title = "Street View Unavailable",
-  description = "Add your Google Maps API key to enable Street View functionality"
+  title = 'Street View Unavailable',
+  description = 'Add your Google Maps API key to enable Street View functionality',
 }) => {
   return (
     <div className="flex flex-col items-center justify-center p-8">
       <div className="text-6xl mb-4">🏙️</div>
-      <h3 className="text-xl font-medium text-dark-200 mb-2">{title}</h3>
-      <p className="text-dark-400 text-center mb-6">{description}</p>
-      <button
-        onClick={onAddApiKey}
-        className="btn-primary"
-      >
+      <h3 className="text-xl font-medium text-neutral-200 mb-2">{title}</h3>
+      <p className="text-neutral-400 text-center mb-6">{description}</p>
+      <button onClick={onAddApiKey} className="btn-primary">
         Add API Key
       </button>
     </div>
@@ -170,16 +183,14 @@ export interface ConnectionLoaderProps {
   message?: string;
 }
 
-export const ConnectionLoader: React.FC<ConnectionLoaderProps> = ({ 
+export const ConnectionLoader: React.FC<ConnectionLoaderProps> = ({
   deviceType,
-  message = "Connecting..."
+  message = 'Connecting...',
 }) => {
   return (
     <div className="flex items-center gap-3 p-3 bg-primary-500/10 border border-primary-500/20 rounded-xl">
       <LoadingSpinner size="sm" />
-      <div className="text-sm text-primary-400">
-        Connecting to {deviceType}...
-      </div>
+      <div className="text-sm text-primary-400">Connecting to {deviceType}...</div>
     </div>
   );
 };
@@ -189,17 +200,15 @@ export interface ConnectionSuccessProps {
   onDisconnect?: () => void;
 }
 
-export const ConnectionSuccess: React.FC<ConnectionSuccessProps> = ({ 
+export const ConnectionSuccess: React.FC<ConnectionSuccessProps> = ({
   deviceName,
-  onDisconnect
+  onDisconnect,
 }) => {
   return (
     <div className="flex items-center justify-between p-3 bg-success-500/10 border border-success-500/20 rounded-xl animate-slide-up">
       <div className="flex items-center gap-3">
         <div className="w-2 h-2 rounded-full bg-success-400 animate-pulse" />
-        <div className="text-sm text-success-400">
-          Connected to {deviceName}
-        </div>
+        <div className="text-sm text-success-400">Connected to {deviceName}</div>
       </div>
       {onDisconnect && (
         <button
@@ -219,18 +228,16 @@ export interface ConnectionErrorProps {
   onRetry?: () => void;
 }
 
-export const ConnectionError: React.FC<ConnectionErrorProps> = ({ 
+export const ConnectionError: React.FC<ConnectionErrorProps> = ({
   error,
   deviceType,
-  onRetry
+  onRetry,
 }) => {
   return (
     <div className="flex items-center justify-between p-3 bg-danger-500/10 border border-danger-500/20 rounded-xl">
       <div className="flex items-center gap-3">
         <div className="w-2 h-2 rounded-full bg-danger-400" />
-        <div className="text-sm text-danger-400">
-          {deviceType} connection failed
-        </div>
+        <div className="text-sm text-danger-400">{deviceType} connection failed</div>
       </div>
       {onRetry && (
         <button
@@ -250,14 +257,14 @@ export interface MapLoadingProps {
   height?: string;
 }
 
-export const MapLoading: React.FC<MapLoadingProps> = ({ 
-  message = "Loading map...",
-  height = "400px"
+export const MapLoading: React.FC<MapLoadingProps> = ({
+  message = 'Loading map...',
+  height = '400px',
 }) => {
   return (
     <div className="flex flex-col items-center justify-center" style={{ height }}>
       <LoadingSpinner size="lg" />
-      <p className="text-sm text-dark-400 mt-2">{message}</p>
+      <p className="text-sm text-neutral-400 mt-2">{message}</p>
     </div>
   );
 };
@@ -267,17 +274,17 @@ export interface DataLoadingProps {
   height?: string;
 }
 
-export const DataLoading: React.FC<DataLoadingProps> = ({ 
-  message = "Loading data...",
-  height = "200px"
+export const DataLoading: React.FC<DataLoadingProps> = ({
+  message = 'Loading data...',
+  height = '200px',
 }) => {
   return (
-    <div className="flex items-center justify-center" style={{ height }}>
+    <div className="flex flex-col items-center justify-center space-y-2" style={{ height }}>
       <div className="flex space-x-2">
         <LoadingSpinner size="sm" />
         <PulseLoader />
       </div>
-      <p className="text-sm text-dark-400 mt-2">{message}</p>
+      <p className="text-sm text-neutral-400">{message}</p>
     </div>
   );
 };
@@ -289,10 +296,10 @@ export interface LoadingOverlayProps {
   children?: React.ReactNode;
 }
 
-export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ 
+export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
   isLoading,
-  message = "Loading...",
-  children
+  message = 'Loading...',
+  children,
 }) => {
   if (!isLoading) return <>{children}</>;
 
@@ -301,7 +308,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
       <div className="glass-card p-6 max-w-md w-full mx-4">
         <div className="flex flex-col items-center space-y-4">
           <LoadingSpinner size="lg" />
-          <p className="text-sm text-dark-400">{message}</p>
+          <p className="text-sm text-neutral-400">{message}</p>
         </div>
       </div>
     </div>
@@ -315,19 +322,19 @@ export interface ProgressLoaderProps {
   showPercentage?: boolean;
 }
 
-export const ProgressLoader: React.FC<ProgressLoaderProps> = ({ 
+export const ProgressLoader: React.FC<ProgressLoaderProps> = ({
   progress,
-  message = "Loading...",
-  showPercentage = true
+  message = 'Loading...',
+  showPercentage = true,
 }) => {
   return (
     <div className="w-full space-y-2">
-      <div className="flex justify-between text-sm text-dark-400">
+      <div className="flex justify-between text-sm text-neutral-400">
         <span>{message}</span>
         {showPercentage && <span>{progress}%</span>}
       </div>
-      <div className="w-full bg-dark-700 rounded-full h-2">
-        <div 
+      <div className="w-full bg-neutral-700 rounded-full h-2">
+        <div
           className="bg-primary-500 h-2 rounded-full transition-all duration-300 ease-out"
           style={{ width: `${progress}%` }}
         />
@@ -342,24 +349,27 @@ export interface DotsLoaderProps {
   color?: string;
 }
 
-export const DotsLoader: React.FC<DotsLoaderProps> = ({ 
+export const DotsLoader: React.FC<DotsLoaderProps> = ({
   dotCount = 3,
-  color = "primary"
+  color = 'primary',
 }) => {
   const colorClasses = {
-    primary: "bg-primary-500",
-    success: "bg-success-500",
-    warning: "bg-warning-500",
-    danger: "bg-danger-500",
-    dark: "bg-dark-500"
-  };
+    primary: 'bg-primary-500',
+    success: 'bg-success-500',
+    warning: 'bg-warning-500',
+    danger: 'bg-danger-500',
+    dark: 'bg-dark-500',
+  } as const;
+
+  const resolvedColorClass =
+    colorClasses[color as keyof typeof colorClasses] ?? color;
 
   return (
     <div className="flex space-x-1">
       {Array.from({ length: dotCount }).map((_, index) => (
         <div
           key={index}
-          className={`w-2 h-2 rounded-full ${colorClasses[color as keyof typeof colorClasses] || colorClasses.primary} animate-pulse`}
+          className={`w-2 h-2 rounded-full ${resolvedColorClass} animate-pulse`}
           style={{ animationDelay: `${index * 0.2}s` }}
         />
       ))}
