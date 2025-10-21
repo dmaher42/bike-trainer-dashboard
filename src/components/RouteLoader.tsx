@@ -14,8 +14,8 @@ export interface RouteLoaderProps {
   route: Route;
   isLoading: boolean;
   error: string | null;
-  loadGpxFile: (file: File) => Promise<Route>;
-  resetRoute: () => void;
+  onLoadGPX: (file: File) => Promise<Route>;
+  onResetToDefault: () => void;
 }
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -24,8 +24,8 @@ const RouteLoader: React.FC<RouteLoaderProps> = ({
   route,
   isLoading,
   error,
-  loadGpxFile,
-  resetRoute,
+  onLoadGPX,
+  onResetToDefault,
 }) => {
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -78,7 +78,7 @@ const RouteLoader: React.FC<RouteLoaderProps> = ({
       setLoadedFileName(file.name);
 
       try {
-        await loadGpxFile(file);
+        await onLoadGPX(file);
         setStatusMessage(`Loaded route from ${file.name}`);
       } catch (err) {
         const message =
@@ -89,7 +89,7 @@ const RouteLoader: React.FC<RouteLoaderProps> = ({
         clearFileInput();
       }
     },
-    [clearFileInput, isLoading, loadGpxFile, validateFile],
+    [clearFileInput, isLoading, onLoadGPX, validateFile],
   );
 
   const handleFileChange = useCallback(
@@ -113,12 +113,12 @@ const RouteLoader: React.FC<RouteLoaderProps> = ({
   }, [isLoading]);
 
   const handleReset = useCallback(() => {
-    resetRoute();
+    onResetToDefault();
     clearFileInput();
     setLoadedFileName(null);
     setLocalError(null);
     setStatusMessage("Restored default route");
-  }, [clearFileInput, resetRoute]);
+  }, [clearFileInput, onResetToDefault]);
 
   const handleDrag = useCallback((event: React.DragEvent) => {
     event.preventDefault();
