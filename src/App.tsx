@@ -16,6 +16,16 @@ import { ModernNavigation } from "./components/ModernNavigation";
 import { ModernControls } from "./components/ModernControls";
 import { LoadingSpinner } from "./components/LoadingStates";
 
+const DEVICE_KEYS = ["ftms", "cps", "hr"] as const;
+
+type DeviceKey = (typeof DEVICE_KEYS)[number];
+
+const DEVICE_LABELS: Record<DeviceKey, string> = {
+  ftms: "Smart Trainer",
+  cps: "Cadence Sensor",
+  hr: "Heart Rate Monitor",
+};
+
 function App() {
   type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
 
@@ -45,7 +55,13 @@ function App() {
     resetToDefault,
   } = useRoute();
 
-  const { environment: env, connectedDevices: devices } = useBluetooth();
+  const {
+    environment: env,
+    connectedDevices: devices,
+    statuses,
+    errors,
+    disconnect,
+  } = useBluetooth();
   const { isActive: activeWorkout, targetPower, targetCadence } = useWorkout();
   const { saveRide } = useRideHistory();
 
