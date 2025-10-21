@@ -14,6 +14,7 @@ import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
 import RouteLoader from "./components/RouteLoader";
 import FixBluetoothModal from "./components/FixBluetoothModal";
 import ViewToggle, { ViewOption } from "./components/ViewToggle";
+import ApiKeyField from "./components/settings/ApiKeyField";
 import { useApiKeys } from "./hooks/useApiKeys";
 
 type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
@@ -454,26 +455,24 @@ function App() {
       <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
         <h2 className="mb-4 text-lg font-medium">API Keys</h2>
         <div className="space-y-4">
-          <label className="block space-y-2 text-sm">
-            <span className="text-neutral-300">Google Maps API key</span>
-            <input
-              type="text"
-              value={googleMapsApiKey}
-              onChange={(event) => setGoogleMapsApiKey(event.target.value)}
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 focus:border-emerald-500 focus:outline-none"
-              placeholder="Paste your key to enable Street View"
-            />
-          </label>
-          <label className="block space-y-2 text-sm">
-            <span className="text-neutral-300">Mapbox access token</span>
-            <input
-              type="text"
-              value={mapboxApiKey}
-              onChange={(event) => setMapboxApiKey(event.target.value)}
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-neutral-100 focus:border-emerald-500 focus:outline-none"
-              placeholder="Add a token to enable Mapbox 3D"
-            />
-          </label>
+          <ApiKeyField
+            label="Google Maps API key"
+            description="Paste your key to enable Street View"
+            value={googleMapsApiKey}
+            onChange={setGoogleMapsApiKey}
+            placeholder="Paste your key to enable Street View"
+            saved={Boolean(googleMapsApiKey)}
+            data-testid="google-api-field"
+          />
+          <ApiKeyField
+            label="Mapbox access token"
+            description="Add a token to enable Mapbox 3D"
+            value={mapboxApiKey}
+            onChange={setMapboxApiKey}
+            placeholder="Add a token to enable Mapbox 3D"
+            saved={Boolean(mapboxApiKey)}
+            data-testid="mapbox-api-field"
+          />
         </div>
       </section>
 
