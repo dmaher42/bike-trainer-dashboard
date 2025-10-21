@@ -1,3 +1,108 @@
+1. Find your existing App component
+2. Add these imports at the top:
+
+import { StreetViewDisplay } from './components/StreetViewDisplay';
+
+3. Add these state variables:
+
+const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
+const [currentLocation, setCurrentLocation] = useState<string>('');
+
+4. Update the ViewToggle component to include Street View:
+
+const views = [
+  { id: 'virtual', label: 'Virtual Map', icon: '🚴' },
+  { id: 'street', label: 'Street View', icon: '🏙️' },
+  { id: 'mapbox', label: 'Mapbox 3D', icon: '🗺️' },
+];
+
+5. Update the dashboard section to include Street View:
+
+{activeTab === "dashboard" && (
+  <div className="space-y-6">
+    {/* View Toggle */}
+    <div className="flex justify-center">
+      <ViewToggle
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        disabled={!googleMapsApiKey}
+      />
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Metrics Card */}
+      <div className="lg:col-span-1 space-y-6">
+        {/* Your existing metrics section */}
+      </div>
+
+      {/* View Display */}
+      <div className="lg:col-span-2">
+        {currentView === 'street' && googleMapsApiKey && (
+          <StreetViewDisplay
+            route={route}
+            currentPosition={metrics.distance / 5} // Assuming 5km loop
+            isRiding={rideOn}
+            apiKey={googleMapsApiKey}
+            onLocationUpdate={setCurrentLocation}
+            onError={(error) => setStatus(`Street View error: ${error}`)}
+          />
+        )}
+
+        {currentView === 'street' && !googleMapsApiKey && (
+          <StreetViewPlaceholder onAddApiKey={() => setActiveTab('settings')} />
+        )}
+
+        {/* Other views */}
+        {currentView === 'virtual' && (
+          <VirtualMap
+            route={route}
+            metrics={metrics}
+            waypoints={waypoints}
+            onRouteClick={handleRouteClick}
+            showRouteInfo={true}
+          />
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
+6. Update the settings tab to include Google Maps API key:
+
+{activeTab === "settings" && (
+  <div className="space-y-6">
+    {/* Existing settings */}
+    
+    <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+      <h2 className="text-lg font-medium mb-3">Google Maps Integration</h2>
+      <div className="space-y-4">
+        <div>
+          <h3 className="font-medium mb-2">Google Maps API Key</h3>
+          <input
+            type="password"
+            value={googleMapsApiKey}
+            onChange={(e) => setGoogleMapsApiKey(e.target.value)}
+            placeholder="Enter your Google Maps API key"
+            className="modern-input w-full"
+          />
+          <p className="text-xs text-neutral-400 mt-1">
+            Get an API key from the Google Cloud Console with Maps JavaScript API and Street View Static API enabled
+          </p>
+        </div>
+        
+        <div className="p-4 bg-primary-500/10 border border-primary-500/20 rounded-xl">
+          <h4 className="text-sm font-medium text-primary-400 mb-2">API Usage Information</h4>
+          <div className="text-xs text-neutral-400 space-y-1">
+            <p>• Free tier: $200/month credit</p>
+            <p>• Maps JavaScript API: $7/1,000 loads</p>
+            <p>• Street View Static: $7/1,000 loads</p>
+            <p>• Estimated cost: $5-15/month for personal use</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Sample } from "./types";
 import { useMetrics } from "./hooks/useMetrics";
