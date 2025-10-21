@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Route } from "../types";
 import { MapProxyService } from "../services/mapProxy";
+
+const MAX_STREET_VIEW_RETRIES = 3;
 
 interface StreetViewDisplayProps {
   route: Route;
@@ -23,10 +25,21 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   onError,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [routeLatLngs, setRouteLatLngs] = useState<LatLng[]>([]);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const lastRequestedIndexRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!route.pts.length) {
@@ -108,15 +121,23 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     [routeLatLngs],
   );
 
-  const loadStreetViewImage = useCallback(
-    async (index: number) => {
+  const loadStreetViewWithRetry = useCallback(
+    async (index: number, attempt = 0) => {
       const position = routeLatLngs[index];
       if (!position) {
         return;
       }
 
-      setIsLoading(true);
-      setError(null);
+      if (attempt === 0) {
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = undefined;
+        }
+        lastRequestedIndexRef.current = index;
+        setIsLoading(true);
+        setError(null);
+        setRetryCount(0);
+      }
 
       try {
         const proxy = MapProxyService.getInstance();
@@ -134,18 +155,53 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         const locationString = `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
         setCurrentLocation(locationString);
         onLocationUpdate?.(locationString);
+        setRetryCount(0);
+        setIsLoading(false);
+        retryTimeoutRef.current = undefined;
+        lastRequestedIndexRef.current = index;
       } catch (err) {
         console.error("Failed to load Street View:", err);
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to load Street View image";
-        setError(errorMessage);
-        onError?.(errorMessage);
-      } finally {
+        const nextAttempt = attempt + 1;
+
+        if (nextAttempt <= MAX_STREET_VIEW_RETRIES) {
+          setRetryCount(nextAttempt);
+          if (retryTimeoutRef.current) {
+            clearTimeout(retryTimeoutRef.current);
+          }
+          retryTimeoutRef.current = setTimeout(() => {
+            void loadStreetViewWithRetry(index, nextAttempt);
+          }, 1000 * nextAttempt);
+          return;
+        }
+
+        const baseMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to load Street View image";
+
+        const finalMessage = baseMessage
+          ? `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts: ${baseMessage}`
+          : `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts.`;
+
+        setImageUrl(null);
+        setError(finalMessage);
+        onError?.(finalMessage);
+        setRetryCount(0);
         setIsLoading(false);
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = undefined;
+        }
       }
     },
     [routeLatLngs, calculateHeading, onLocationUpdate, onError],
   );
+
+  const handleManualRetry = useCallback(() => {
+    if (lastRequestedIndexRef.current !== null) {
+      void loadStreetViewWithRetry(lastRequestedIndexRef.current);
+    }
+  }, [loadStreetViewWithRetry]);
 
   useEffect(() => {
     if (routeLatLngs.length === 0) {
@@ -162,8 +218,8 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       ),
     );
 
-    void loadStreetViewImage(index);
-  }, [routeLatLngs, currentPosition, loadStreetViewImage]);
+    void loadStreetViewWithRetry(index);
+  }, [routeLatLngs, currentPosition, loadStreetViewWithRetry]);
 
   return (
     <div className="glass-card space-y-4 p-6">
@@ -181,7 +237,11 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80">
             <div className="text-center">
               <div className="loading-spinner mx-auto mb-2" />
-              <p className="text-sm text-dark-400">Loading Street View...</p>
+              <p className="text-sm text-dark-400">
+                {retryCount > 0
+                  ? `Retrying Street View... (Attempt ${retryCount} of ${MAX_STREET_VIEW_RETRIES})`
+                  : "Loading Street View..."}
+              </p>
             </div>
           </div>
         )}
@@ -205,6 +265,13 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
                 </svg>
               </div>
               <p className="text-sm text-dark-400">{error}</p>
+              <button
+                type="button"
+                onClick={handleManualRetry}
+                className="mt-4 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+              >
+                Try Again
+              </button>
             </div>
           </div>
         )}
