@@ -5,7 +5,7 @@ export default defineConfig(({ command }) => ({
   root: 'dev',
   publicDir: '../public',
   plugins: [react()],
-  base: command === 'build' ? '/bike-trainer-dashboard/' : '/',
+  base: command === 'build' ? './' : '/',
   build: {
     outDir: '../docs',
     emptyOutDir: true,
