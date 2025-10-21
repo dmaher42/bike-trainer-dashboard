@@ -336,7 +336,6 @@ function App() {
                         route={route}
                         currentPosition={routeProgress}
                         isRiding={rideOn}
-                        apiKey={googleMapsApiKey}
                         onLocationUpdate={setCurrentLocation}
                         onError={(errorMessage) =>
                           setStatus(`Street View error: ${errorMessage}`)
