@@ -30,13 +30,24 @@ type LocationStub = {
   set hash(value: string);
 };
 
+type StorageStub = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
 type WindowStub = {
   location: LocationStub;
   addEventListener: () => void;
   removeEventListener: () => void;
+  localStorage?: StorageStub;
 };
 
-const withWindowHash = (hash: string | null, render: () => string): string => {
+type WindowOptions = {
+  localStorage?: StorageStub;
+};
+
+const withWindowHash = (
+  hash: string | null,
+  render: () => string,
+  options: WindowOptions = {},
+): string => {
   const originalWindow = (globalThis as { window?: WindowStub }).window;
   const originalLocation = (globalThis as { location?: WindowStub["location"] }).location;
 
@@ -57,6 +68,10 @@ const withWindowHash = (hash: string | null, render: () => string): string => {
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
     } as WindowStub;
+
+    if (options.localStorage) {
+      stubWindow.localStorage = options.localStorage;
+    }
 
     (globalThis as { window?: WindowStub }).window = stubWindow;
     (globalThis as { location?: WindowStub["location"] }).location = stubWindow.location;
@@ -99,5 +114,36 @@ describe("App tab hydration", () => {
       const markup = withWindowHash(hash, () => renderToStaticMarkup(<App />));
       expect(markup).toContain(`data-testid="${testId}"`);
     });
+  });
+
+  it("prefills API keys from localStorage on the settings screen", () => {
+    const getItem = vi.fn((key: string) => {
+      if (key === "googleMapsApiKey") {
+        return "stored-google";
+      }
+
+      if (key === "mapboxApiKey") {
+        return "stored-mapbox";
+      }
+
+      return null;
+    });
+
+    const markup = withWindowHash(
+      "#settings",
+      () => renderToStaticMarkup(<App />),
+      {
+        localStorage: {
+          getItem,
+          setItem: vi.fn(),
+          removeItem: vi.fn(),
+        },
+      },
+    );
+
+    expect(getItem).toHaveBeenCalledWith("googleMapsApiKey");
+    expect(getItem).toHaveBeenCalledWith("mapboxApiKey");
+    expect(markup).toContain('value="stored-google"');
+    expect(markup).toContain('value="stored-mapbox"');
   });
 });
