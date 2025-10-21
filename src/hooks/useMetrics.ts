@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Metrics, Sample } from "../types";
 
@@ -58,6 +58,14 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
 
+  const applyMetricsUpdate = useCallback((updates: Partial<Metrics>) => {
+    setMetrics((prev) => {
+      const next = { ...prev, ...updates };
+      metricsRef.current = next;
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     metricsRef.current = metrics;
   }, [metrics]);
@@ -113,6 +121,48 @@ export const useMetrics = (simulate: boolean, rideOn: boolean): UseMetricsResult
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (simulate || typeof window === "undefined") {
+      return;
+    }
+
+    const handleFtmsData = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<Metrics>>).detail;
+      if (!detail) {
+        return;
+      }
+
+      const updates: Partial<Metrics> = {};
+      if (typeof detail.power === "number") {
+        updates.power = detail.power;
+      }
+      if (typeof detail.cadence === "number") {
+        updates.cadence = detail.cadence;
+      }
+      if (typeof detail.speed === "number") {
+        updates.speed = detail.speed;
+      }
+      if (Object.keys(updates).length > 0) {
+        applyMetricsUpdate(updates);
+      }
+    };
+
+    const handleHeartRateData = (event: Event) => {
+      const detail = (event as CustomEvent<{ hr?: number }>).detail;
+      if (detail && typeof detail.hr === "number") {
+        applyMetricsUpdate({ hr: detail.hr });
+      }
+    };
+
+    window.addEventListener("ftms-data", handleFtmsData as EventListener);
+    window.addEventListener("hr-data", handleHeartRateData as EventListener);
+
+    return () => {
+      window.removeEventListener("ftms-data", handleFtmsData as EventListener);
+      window.removeEventListener("hr-data", handleHeartRateData as EventListener);
+    };
+  }, [applyMetricsUpdate, simulate]);
 
   const startRide = () => {
     if (isRunning) {
