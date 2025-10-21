@@ -1,3 +1,11 @@
+export type StreetViewImageParams = {
+  location: string;
+  heading: number;
+  pitch: number;
+  fov: number;
+  size: string;
+};
+
 export class MapProxyService {
   private static instance: MapProxyService;
   private baseUrl: string;
@@ -14,13 +22,7 @@ export class MapProxyService {
     return MapProxyService.instance;
   }
 
-  async getStreetViewImage(params: {
-    location: string;
-    heading: number;
-    pitch: number;
-    fov: number;
-    size: string;
-  }): Promise<string> {
+  async getStreetViewImage(params: StreetViewImageParams): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/streetview`, {
       method: 'POST',
       headers: {
