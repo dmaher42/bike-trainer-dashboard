@@ -117,7 +117,8 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       if (!panoramaRef.current) {
         panoramaRef.current = new google.maps.StreetViewPanorama(streetViewRef.current, {
           position: routeLatLngs[0],
-          pov: { heading: 0, pitch: 0, zoom: 1 },
+          pov: { heading: 0, pitch: 0 },
+          zoom: 1,
           visible: true,
           addressControl: false,
           linksControl: false,
@@ -134,7 +135,8 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         const position = routeLatLngs[index];
         if (!position) return;
         panoramaRef.current.setPosition(position);
-        panoramaRef.current.setPov({ heading: calculateHeading(index), pitch: 0, zoom: 1 });
+        panoramaRef.current.setPov({ heading: calculateHeading(index), pitch: 0 });
+        panoramaRef.current.setZoom(1);
       };
 
       // Set initial panorama position
@@ -178,12 +180,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         setImageUrl(image);
 
         // Get current location name
-        try {
-          const location = await mapsManager.reverseGeocode(position);
-          setCurrentLocation(location);
-          onLocationUpdate?.(location);
-        } catch (err) {
-          console.warn('Failed to get location name:', err);
+        if (mapsManager) {
+          try {
+            const location = await mapsManager.reverseGeocode(position);
+            setCurrentLocation(location);
+            onLocationUpdate?.(location);
+          } catch (err) {
+            console.warn('Failed to get location name:', err);
+          }
         }
 
         setRetryCount(0);
