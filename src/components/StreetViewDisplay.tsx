@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Route } from "../types";
 import { MapProxyService } from "../services/mapProxy";
+import { GoogleMapsManager } from "../utils/googleMapsUtils";
 
 const MAX_STREET_VIEW_RETRIES = 3;
 
@@ -26,9 +27,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [routeLatLngs, setRouteLatLngs] = useState<LatLng[]>([]);
+  const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLng[]>([]);
+
+  const streetViewRef = useRef<HTMLDivElement | null>(null);
+  const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const lastRequestedIndexRef = useRef<number | null>(null);
+
+  const [mapsManager, setMapsManager] = useState<GoogleMapsManager | null>(null);
 
   useEffect(() => {
     return () => {
@@ -44,11 +50,11 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       try {
         const manager = GoogleMapsManager.getInstance({ apiKey });
         setMapsManager(manager);
-        
+
         await manager.loadGoogleMaps();
         setIsLoading(false);
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to load Google Maps';
+        const errorMessage = err instanceof Error ? err.message : "Failed to load Google Maps";
         setError(errorMessage);
         setIsLoading(false);
         onError?.(errorMessage);
@@ -64,26 +70,19 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     const convertRoutePoints = async () => {
       try {
-        // For now, we'll use dummy coordinates. In a real implementation,
-        // you would convert your route points to real lat/lng coordinates
         const latLngs = route.pts.map((point, index) => {
-          // Create a sample route around San Francisco
           const baseLat = 37.7749;
           const baseLng = -122.4194;
-          
-          // Create a loop route
           const angle = (index / route.pts.length) * 2 * Math.PI;
-          const radius = 0.01; // About 1km radius
-          
+          const radius = 0.01;
           const lat = baseLat + radius * Math.cos(angle);
           const lng = baseLng + radius * Math.sin(angle);
-          
           return new google.maps.LatLng(lat, lng);
         });
 
         setRouteLatLngs(latLngs);
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to convert route points';
+        const errorMessage = err instanceof Error ? err.message : "Failed to convert route points";
         setError(errorMessage);
         onError?.(errorMessage);
       }
@@ -92,22 +91,33 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     convertRoutePoints();
   }, [mapsManager, route, onError]);
 
-  // Initialize Street View panorama
+  // calculateHeading helper
+  const calculateHeading = useCallback(
+    (index: number) => {
+      if (routeLatLngs.length === 0) return 0;
+      const position = routeLatLngs[index];
+      if (!position) return 0;
+      let heading = 0;
+      if (index < routeLatLngs.length - 1) {
+        const nextPoint = routeLatLngs[index + 1];
+        heading = google.maps.geometry.spherical.computeHeading(position, nextPoint);
+      }
+      return heading;
+    },
+    [routeLatLngs]
+  );
+
+  // Initialize Street View panorama and update function
   useEffect(() => {
     if (!streetViewRef.current || !mapsManager || !mapsManager.isLoaded() || routeLatLngs.length === 0) {
       return;
     }
 
     try {
-      // Create or update panorama
       if (!panoramaRef.current) {
         panoramaRef.current = new google.maps.StreetViewPanorama(streetViewRef.current, {
           position: routeLatLngs[0],
-          pov: {
-            heading: 0,
-            pitch: 0,
-            zoom: 1,
-          },
+          pov: { heading: 0, pitch: 0, zoom: 1 },
           visible: true,
           addressControl: false,
           linksControl: false,
@@ -119,24 +129,22 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         });
       }
 
-      // Update location when position changes
-      const updateStreetViewPosition = async () => {
+      const updateStreetViewPosition = (index: number) => {
         if (!panoramaRef.current || routeLatLngs.length === 0) return;
-
-        const index = Math.floor(currentPosition * (routeLatLngs.length - 1));
         const position = routeLatLngs[index];
+        if (!position) return;
+        panoramaRef.current.setPosition(position);
+        panoramaRef.current.setPov({ heading: calculateHeading(index), pitch: 0, zoom: 1 });
+      };
 
-        // Calculate heading based on next point
-        let heading = 0;
-        if (index < routeLatLngs.length - 1) {
-          const nextPoint = routeLatLngs[index + 1];
-          heading = google.maps.geometry.spherical.computeHeading(position, nextPoint);
-        }
-
-      return heading;
-    },
-    [routeLatLngs],
-  );
+      // Set initial panorama position
+      updateStreetViewPosition(0);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to initialize Street View';
+      setError(errorMessage);
+      onError?.(errorMessage);
+    }
+  }, [mapsManager, routeLatLngs, calculateHeading, onError]);
 
   const loadStreetViewWithRetry = useCallback(
     async (index: number, attempt = 0) => {
@@ -160,11 +168,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         const proxy = MapProxyService.getInstance();
 
         const image = await proxy.getStreetViewImage({
-          location: `${position.lat},${position.lng}`,
+          location: `${position.lat()},${position.lng()}`,
           heading: calculateHeading(index),
           pitch: 0,
-          zoom: 1,
+          fov: 90,
+          size: "640x640",
         });
+
+        setImageUrl(image);
 
         // Get current location name
         try {
@@ -174,19 +185,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         } catch (err) {
           console.warn('Failed to get location name:', err);
         }
-      };
 
-      updateStreetViewPosition();
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to initialize Street View';
-      setError(errorMessage);
-      onError?.(errorMessage);
-    }
-  }, [mapsManager, routeLatLngs, currentPosition, onLocationUpdate, onError]);
-
-        const locationString = `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
-        setCurrentLocation(locationString);
-        onLocationUpdate?.(locationString);
         setRetryCount(0);
         setIsLoading(false);
         retryTimeoutRef.current = undefined;
@@ -206,10 +205,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           return;
         }
 
-        const baseMessage =
-          err instanceof Error
-            ? err.message
-            : "Failed to load Street View image";
+        const baseMessage = err instanceof Error ? err.message : "Failed to load Street View image";
 
         const finalMessage = baseMessage
           ? `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts: ${baseMessage}`
@@ -226,7 +222,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         }
       }
     },
-    [routeLatLngs, calculateHeading, onLocationUpdate, onError],
+    [routeLatLngs, calculateHeading, onLocationUpdate, onError, mapsManager]
   );
 
   const handleManualRetry = useCallback(() => {
@@ -290,7 +286,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
               <button
                 type="button"
                 onClick={handleManualRetry}
-                className="mt-4 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+                className="mt-4 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-400 focus:outline-none focus-visible:ring-2"
               >
                 Try Again
               </button>
@@ -312,7 +308,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
             {isRiding ? 'Riding' : 'Paused'}
           </span>
         </div>
-        
+
         <div className="text-dark-400">
           Position: {Math.round(currentPosition * 100)}%
         </div>
