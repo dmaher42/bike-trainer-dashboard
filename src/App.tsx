@@ -5,16 +5,16 @@ import { useMetrics } from "./hooks/useMetrics";
 import { useRoute } from "./hooks/useRoute";
 import { useWorkout } from "./hooks/useWorkout";
 import { downloadCSV } from "./utils/metricsUtils";
-import Metric from "./components/Metric";
+import { Metric } from "./components/Metric";
 import VirtualMap from "./components/VirtualMap";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
 import { StreetViewPlaceholder } from "./components/LoadingStates";
 import WorkoutPanel from "./components/WorkoutPanel";
 import EnvDiagnostics from "./components/EnvDiagnostics";
-import { BluetoothConnectPanel } from "./components/BluetoothConnectPanel";
+import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
 import RouteLoader from "./components/RouteLoader";
 import FixBluetoothModal from "./components/FixBluetoothModal";
-import { ViewToggle } from "./components/ViewToggle";
+import ViewToggle from "./components/ViewToggle";
 
 function App() {
   const [sim, setSim] = useState(false);
@@ -38,10 +38,10 @@ function App() {
   });
   
   const {
-    env,
-    devices,
-    status,
-    refreshEnv,
+    environment,
+    connectedDevices,
+    statuses,
+    refreshEnvironment,
     connectFTMS,
     connectCPS,
     connectHR,
@@ -79,10 +79,10 @@ function App() {
 
   // Auto-enable simulator if Bluetooth is not available
   useEffect(() => {
-    if (env.canUse === false && !sim) {
+    if (environment.canUse === false && !sim) {
       setSim(true);
     }
-  }, [env.canUse, sim]);
+  }, [environment.canUse, sim]);
 
   const handleStartRide = () => {
     if (startRide()) {
@@ -161,17 +161,16 @@ function App() {
         </div>
 
         <BluetoothConnectPanel
-          env={env}
-          devices={devices}
-          status={status}
+          env={environment}
+          devices={connectedDevices}
           onConnectFTMS={connectFTMS}
           onConnectCPS={connectCPS}
           onConnectHR={connectHR}
-          onRefreshEnv={refreshEnv}
+          onRefreshEnv={refreshEnvironment}
           onShowFix={() => setShowFix(true)}
         />
 
-        <EnvDiagnostics environment={env} connectedDevices={Object.values(devices)} />
+        <EnvDiagnostics environment={environment} />
 
         {activeTab === "dashboard" && (
           <div className="space-y-6">
@@ -209,7 +208,6 @@ function App() {
                     Export CSV
                   </button>
                 </div>
-                <p className="mt-3 text-neutral-400 text-sm">{status}</p>
               </div>
 
               {/* View Display */}
@@ -352,11 +350,11 @@ function App() {
 
         {showFix && (
           <FixBluetoothModal
-            env={env}
+            env={environment}
             onClose={() => setShowFix(false)}
             onCopy={handleCopy}
             copied={copied}
-            onRefresh={refreshEnv}
+            onRefresh={refreshEnvironment}
           />
         )}
       </div>
