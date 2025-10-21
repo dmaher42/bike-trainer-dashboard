@@ -113,6 +113,11 @@ function App() {
     }
   };
 
+  const handleRouteClick = (point: { x: number; y: number }) => {
+    // Optional: handle route click events
+    console.log('Route clicked at:', point);
+  };
+
   const views = [
     { id: 'virtual', label: 'Virtual Map', icon: '🚴' },
     { id: 'street', label: 'Street View', icon: '🏙️' },

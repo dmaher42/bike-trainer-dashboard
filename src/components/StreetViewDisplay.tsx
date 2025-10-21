@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Route, RoutePoint } from "../types";
-import { GoogleMapsManager } from "../utils/googleMapsUtils";
-import { LoadingSpinner } from "./LoadingStates";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { Route } from "../types";
+import { MapProxyService } from "../services/mapProxy";
+
+const MAX_STREET_VIEW_RETRIES = 3;
 
 interface StreetViewDisplayProps {
   route: Route;
@@ -20,15 +21,22 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   onLocationUpdate,
   onError,
 }) => {
-  const streetViewRef = useRef<HTMLDivElement>(null);
-  const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<string>('');
-  const [mapsManager, setMapsManager] = useState<GoogleMapsManager | null>(null);
-  const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLng[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const [imageCache, setImageCache] = useState<Map<string, string>>(new Map());
+  const [error, setError] = useState<string | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<string>("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [routeLatLngs, setRouteLatLngs] = useState<LatLng[]>([]);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const lastRequestedIndexRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Initialize Google Maps
   useEffect(() => {
@@ -125,10 +133,35 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           heading = google.maps.geometry.spherical.computeHeading(position, nextPoint);
         }
 
-        // Update panorama
-        panoramaRef.current.setPosition(position);
-        panoramaRef.current.setPov({
-          heading,
+      return heading;
+    },
+    [routeLatLngs],
+  );
+
+  const loadStreetViewWithRetry = useCallback(
+    async (index: number, attempt = 0) => {
+      const position = routeLatLngs[index];
+      if (!position) {
+        return;
+      }
+
+      if (attempt === 0) {
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = undefined;
+        }
+        lastRequestedIndexRef.current = index;
+        setIsLoading(true);
+        setError(null);
+        setRetryCount(0);
+      }
+
+      try {
+        const proxy = MapProxyService.getInstance();
+
+        const image = await proxy.getStreetViewImage({
+          location: `${position.lat},${position.lng}`,
+          heading: calculateHeading(index),
           pitch: 0,
           zoom: 1,
         });
@@ -151,49 +184,74 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     }
   }, [mapsManager, routeLatLngs, currentPosition, onLocationUpdate, onError]);
 
-  // Auto-advance position when riding
-  useEffect(() => {
-    if (!isRiding || !panoramaRef.current) return;
-
-    const interval = setInterval(() => {
-      // This would be controlled by your actual riding position
-      // For now, we'll just update the POV slightly
-      const pov = panoramaRef.current?.getPov();
-      if (pov) {
-        panoramaRef.current?.setPov({
-          ...pov,
-          heading: pov.heading + 0.5, // Slowly rotate view
-        });
-      }
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isRiding]);
-
-  // Retry mechanism for failed loads
-  const retryLoad = useCallback(() => {
-    setRetryCount(prev => prev + 1);
-    setIsLoading(true);
-    setError(null);
-    
-    // Re-initialize maps manager
-    const initializeMaps = async () => {
-      try {
-        const manager = GoogleMapsManager.getInstance({ apiKey });
-        setMapsManager(manager);
-        
-        await manager.loadGoogleMaps();
+        const locationString = `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+        setCurrentLocation(locationString);
+        onLocationUpdate?.(locationString);
+        setRetryCount(0);
         setIsLoading(false);
+        retryTimeoutRef.current = undefined;
+        lastRequestedIndexRef.current = index;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to load Google Maps';
-        setError(errorMessage);
-        setIsLoading(false);
-        onError?.(errorMessage);
-      }
-    };
+        console.error("Failed to load Street View:", err);
+        const nextAttempt = attempt + 1;
 
-    initializeMaps();
-  }, [apiKey, onError]);
+        if (nextAttempt <= MAX_STREET_VIEW_RETRIES) {
+          setRetryCount(nextAttempt);
+          if (retryTimeoutRef.current) {
+            clearTimeout(retryTimeoutRef.current);
+          }
+          retryTimeoutRef.current = setTimeout(() => {
+            void loadStreetViewWithRetry(index, nextAttempt);
+          }, 1000 * nextAttempt);
+          return;
+        }
+
+        const baseMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to load Street View image";
+
+        const finalMessage = baseMessage
+          ? `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts: ${baseMessage}`
+          : `Failed to load Street View after ${MAX_STREET_VIEW_RETRIES} attempts.`;
+
+        setImageUrl(null);
+        setError(finalMessage);
+        onError?.(finalMessage);
+        setRetryCount(0);
+        setIsLoading(false);
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = undefined;
+        }
+      }
+    },
+    [routeLatLngs, calculateHeading, onLocationUpdate, onError],
+  );
+
+  const handleManualRetry = useCallback(() => {
+    if (lastRequestedIndexRef.current !== null) {
+      void loadStreetViewWithRetry(lastRequestedIndexRef.current);
+    }
+  }, [loadStreetViewWithRetry]);
+
+  useEffect(() => {
+    if (routeLatLngs.length === 0) {
+      setImageUrl(null);
+      setCurrentLocation("");
+      return;
+    }
+
+    const index = Math.max(
+      0,
+      Math.min(
+        routeLatLngs.length - 1,
+        Math.floor(currentPosition * (routeLatLngs.length - 1)),
+      ),
+    );
+
+    void loadStreetViewWithRetry(index);
+  }, [routeLatLngs, currentPosition, loadStreetViewWithRetry]);
 
   return (
     <div className="glass-card p-6 space-y-4">
@@ -210,8 +268,12 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-10">
             <div className="text-center">
-              <LoadingSpinner size="md" />
-              <p className="text-sm text-dark-400 mt-2">Loading Street View...</p>
+              <div className="loading-spinner mx-auto mb-2" />
+              <p className="text-sm text-dark-400">
+                {retryCount > 0
+                  ? `Retrying Street View... (Attempt ${retryCount} of ${MAX_STREET_VIEW_RETRIES})`
+                  : "Loading Street View..."}
+              </p>
             </div>
           </div>
         )}
@@ -224,17 +286,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h4 className="text-sm font-medium text-danger-400">Street View Error</h4>
-              <p className="text-xs text-dark-400 mt-1">{error}</p>
-              
-              {retryCount < 3 && (
-                <button
-                  onClick={retryLoad}
-                  className="mt-2 px-3 py-1 rounded-lg bg-danger-500/20 text-danger-400 text-xs hover:bg-danger-500/30 transition-colors"
-                >
-                  Retry ({3 - retryCount} attempts left)
-                </button>
-              )}
+              <p className="text-sm text-dark-400">{error}</p>
+              <button
+                type="button"
+                onClick={handleManualRetry}
+                className="mt-4 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+              >
+                Try Again
+              </button>
             </div>
           </div>
         )}
