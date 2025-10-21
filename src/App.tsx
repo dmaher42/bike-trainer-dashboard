@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Sample } from "./types";
 import { useMetrics } from "./hooks/useMetrics";
 import { downloadCSV } from "./utils/metricsUtils";
@@ -50,6 +50,49 @@ function App() {
 
   const ftmsDevice = devices.ftms;
   const { setTargetPower, initializeControl } = useTrainerControl(ftmsDevice);
+
+  const isConnecting = useMemo(
+    () => ({
+      ftms: statuses.ftms === "connecting" || statuses.ftms === "requesting",
+      cps: statuses.cps === "connecting" || statuses.cps === "requesting",
+      hr: statuses.hr === "connecting" || statuses.hr === "requesting",
+    }),
+    [statuses],
+  );
+
+  const bluetoothStatusMessage = useMemo(() => {
+    const activeConnection = DEVICE_KEYS.find((key) =>
+      ["connecting", "requesting"].includes(statuses[key] ?? ""),
+    );
+    if (activeConnection) {
+      return `Connecting to ${DEVICE_LABELS[activeConnection]}...`;
+    }
+
+    const deviceError = DEVICE_KEYS.find((key) => Boolean(errors[key]));
+    if (deviceError) {
+      return `${DEVICE_LABELS[deviceError]}: ${errors[deviceError]}`;
+    }
+
+    const connectedCount = DEVICE_KEYS.filter((key) => devices[key]?.connected).length;
+    if (connectedCount > 0) {
+      return `${connectedCount} device${connectedCount > 1 ? "s" : ""} connected`;
+    }
+
+    if (env.canUse === false) {
+      return "Bluetooth unavailable in this environment.";
+    }
+
+    return null;
+  }, [devices, env.canUse, errors, statuses]);
+
+  const handleDisconnectAll = useCallback(() => {
+    DEVICE_KEYS.forEach((key) => {
+      const device = devices[key];
+      if (device?.connected) {
+        disconnect(key);
+      }
+    });
+  }, [devices, disconnect]);
 
   const handleSimToggle = useCallback(
     (enabled: boolean) => {

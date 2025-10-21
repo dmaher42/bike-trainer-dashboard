@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BluetoothDevice as AppBluetoothDevice, EnvironmentInfo } from '../types';
-import { UUIDS } from '../utils/bluetoothUtils';
+import { UUIDS, checkPolicyAllowed } from '../utils/bluetoothUtils';
 import { speedFromPower } from '../utils/metricsUtils';
+import { useDeviceConnection } from './useDeviceConnection';
+import type { ConnectionState } from './useDeviceConnection';
 
 type DeviceKind = 'ftms' | 'cps' | 'hr';
 
@@ -21,6 +23,8 @@ interface UseBluetoothResult {
   connectCPS: () => Promise<void>;
   connectHR: () => Promise<void>;
   disconnect: (kind: DeviceKind) => void;
+  connectionState: ConnectionState;
+  getConnectionTime: (deviceType: DeviceKind) => string | null;
 }
 
 interface CleanupOptions {
@@ -35,6 +39,12 @@ const SERVICE_UUIDS: Record<DeviceKind, BluetoothServiceUUID> = {
 };
 
 const DEFAULT_ENVIRONMENT: EnvironmentInfo = {
+  isTopLevel: null,
+  isSecure: null,
+  hasBT: null,
+  policy: null,
+  availability: null,
+  canUse: null,
   supportsBluetooth: false,
   bluetoothAvailable: false,
   bluetoothEnabled: false,
@@ -52,6 +62,35 @@ const createAppDevice = (device: globalThis.BluetoothDevice): AppBluetoothDevice
   connected: device.gatt?.connected ?? false,
 });
 
+const recalculateCanUse = (info: EnvironmentInfo): boolean | null => {
+  if (info.policy === false || info.isSecure === false || info.hasBT === false) {
+    return false;
+  }
+
+  if (!info.supportsBluetooth) {
+    return info.hasBT === null ? info.canUse : false;
+  }
+
+  if (
+    info.availability === false ||
+    info.bluetoothAvailable === false ||
+    info.bluetoothEnabled === false
+  ) {
+    return false;
+  }
+
+  if (
+    info.policy === null ||
+    info.isSecure === null ||
+    info.hasBT === null ||
+    info.availability === null
+  ) {
+    return info.canUse;
+  }
+
+  return true;
+};
+
 const isNavigatorWithBluetooth = (
   value: Navigator | undefined,
 ): value is Navigator & { bluetooth: Bluetooth } =>
@@ -67,6 +106,8 @@ export const useBluetooth = (): UseBluetoothResult => {
   const [connectedDevices, setConnectedDevices] = useState<
     Partial<Record<DeviceKind, AppBluetoothDevice>>
   >({});
+
+  const { connectionState, startConnection, endConnection, getConnectionTime } = useDeviceConnection();
 
   const deviceRefs = useRef<Partial<Record<DeviceKind, globalThis.BluetoothDevice>>>({});
   const disconnectListeners = useRef<Partial<Record<DeviceKind, EventListener>>>({});
@@ -97,12 +138,21 @@ export const useBluetooth = (): UseBluetoothResult => {
 
   const refreshEnvironment = useCallback(async () => {
     const nav = typeof navigator === 'undefined' ? undefined : navigator;
+    const hasNavigator = typeof navigator !== 'undefined';
     const supportsBluetooth = isNavigatorWithBluetooth(nav);
+    const policyAllowed = checkPolicyAllowed();
+    const isTopLevel =
+      typeof window === 'undefined'
+        ? null
+        : typeof window.top !== 'undefined'
+          ? window.top === window.self
+          : null;
+    const isSecure = typeof window === 'undefined' ? null : window.isSecureContext ?? null;
 
     let bluetoothAvailable = false;
     let bluetoothEnabled = false;
 
-    if (supportsBluetooth) {
+    if (supportsBluetooth && nav) {
       const { bluetooth } = nav;
       if (isFunction(bluetooth.getAvailability)) {
         try {
@@ -118,7 +168,26 @@ export const useBluetooth = (): UseBluetoothResult => {
       bluetoothEnabled = bluetoothAvailable;
     }
 
-    setEnvironment({ supportsBluetooth, bluetoothAvailable, bluetoothEnabled });
+    const availability = supportsBluetooth
+      ? bluetoothAvailable
+      : hasNavigator
+        ? false
+        : null;
+    const hasBT = hasNavigator ? supportsBluetooth : null;
+
+    const baseEnvironment: EnvironmentInfo = {
+      isTopLevel,
+      isSecure,
+      hasBT,
+      policy: typeof document === 'undefined' ? null : policyAllowed,
+      availability,
+      canUse: null,
+      supportsBluetooth,
+      bluetoothAvailable,
+      bluetoothEnabled,
+    };
+
+    setEnvironment({ ...baseEnvironment, canUse: recalculateCanUse(baseEnvironment) });
   }, []);
 
   const cleanupDevice = useCallback((kind: DeviceKind, options: CleanupOptions = {}) => {
@@ -204,6 +273,7 @@ export const useBluetooth = (): UseBluetoothResult => {
         return;
       }
 
+      startConnection(kind);
       updateStatus(kind, 'requesting');
       clearError(kind);
 
@@ -233,16 +303,36 @@ export const useBluetooth = (): UseBluetoothResult => {
         }
 
         updateStatus(kind, 'connected');
-        setEnvironment((prev) => ({ ...prev, bluetoothEnabled: true }));
+        setEnvironment((prev) => {
+          const next: EnvironmentInfo = {
+            ...prev,
+            bluetoothAvailable: true,
+            bluetoothEnabled: true,
+            availability: true,
+          };
+          return { ...next, canUse: recalculateCanUse(next) };
+        });
         setConnectedDevices((prev) => ({ ...prev, [kind]: createAppDevice(device) }));
+        endConnection(kind, true);
       } catch (error) {
         console.error('Failed to connect to device', error);
-        setError(kind, error instanceof Error ? error.message : 'Failed to connect to device.');
+        const errorMessage =
+          error instanceof Error ? error.message : 'Failed to connect to device.';
+        setError(kind, errorMessage);
         updateStatus(kind, 'error');
+        endConnection(kind, false, errorMessage);
         cleanupDevice(kind, { resetStatus: false, clearError: false });
       }
     },
-    [clearError, cleanupDevice, handleDisconnection, setError, updateStatus],
+    [
+      clearError,
+      cleanupDevice,
+      endConnection,
+      handleDisconnection,
+      setError,
+      startConnection,
+      updateStatus,
+    ],
   );
 
   const disconnect = useCallback(
@@ -260,6 +350,7 @@ export const useBluetooth = (): UseBluetoothResult => {
       return;
     }
 
+    startConnection('ftms');
     updateStatus('ftms', 'requesting');
     clearError('ftms');
 
@@ -343,19 +434,33 @@ export const useBluetooth = (): UseBluetoothResult => {
       await characteristic.startNotifications();
 
       updateStatus('ftms', 'connected');
-      setEnvironment((prev) => ({ ...prev, bluetoothEnabled: true }));
+      setEnvironment((prev) => {
+        const next: EnvironmentInfo = {
+          ...prev,
+          bluetoothAvailable: true,
+          bluetoothEnabled: true,
+          availability: true,
+        };
+        return { ...next, canUse: recalculateCanUse(next) };
+      });
       setConnectedDevices((prev) => ({ ...prev, ftms: createAppDevice(device) }));
+      endConnection('ftms', true);
     } catch (error) {
       console.error('Failed to connect to FTMS device', error);
-      setError('ftms', error instanceof Error ? error.message : 'Failed to connect to device.');
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to connect to device.';
+      setError('ftms', errorMessage);
       updateStatus('ftms', 'error');
+      endConnection('ftms', false, errorMessage);
       cleanupDevice('ftms', { resetStatus: false, clearError: false });
     }
   }, [
     clearError,
     cleanupDevice,
+    endConnection,
     handleDisconnection,
     setError,
+    startConnection,
     updateStatus,
     setEnvironment,
   ]);
@@ -368,6 +473,7 @@ export const useBluetooth = (): UseBluetoothResult => {
       return;
     }
 
+    startConnection('hr');
     updateStatus('hr', 'requesting');
     clearError('hr');
 
@@ -428,19 +534,33 @@ export const useBluetooth = (): UseBluetoothResult => {
       await characteristic.startNotifications();
 
       updateStatus('hr', 'connected');
-      setEnvironment((prev) => ({ ...prev, bluetoothEnabled: true }));
+      setEnvironment((prev) => {
+        const next: EnvironmentInfo = {
+          ...prev,
+          bluetoothAvailable: true,
+          bluetoothEnabled: true,
+          availability: true,
+        };
+        return { ...next, canUse: recalculateCanUse(next) };
+      });
       setConnectedDevices((prev) => ({ ...prev, hr: createAppDevice(device) }));
+      endConnection('hr', true);
     } catch (error) {
       console.error('Failed to connect to HR device', error);
-      setError('hr', error instanceof Error ? error.message : 'Failed to connect to device.');
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to connect to device.';
+      setError('hr', errorMessage);
       updateStatus('hr', 'error');
+      endConnection('hr', false, errorMessage);
       cleanupDevice('hr', { resetStatus: false, clearError: false });
     }
   }, [
     clearError,
     cleanupDevice,
+    endConnection,
     handleDisconnection,
     setError,
+    startConnection,
     updateStatus,
     setEnvironment,
   ]);
@@ -468,8 +588,22 @@ export const useBluetooth = (): UseBluetoothResult => {
       connectCPS,
       connectHR,
       disconnect,
+      connectionState,
+      getConnectionTime,
     }),
-    [connectCPS, connectFTMS, connectHR, connectedDevices, disconnect, environment, errors, refreshEnvironment, statuses],
+    [
+      connectCPS,
+      connectFTMS,
+      connectHR,
+      connectedDevices,
+      connectionState,
+      disconnect,
+      environment,
+      errors,
+      getConnectionTime,
+      refreshEnvironment,
+      statuses,
+    ],
   );
 };
 

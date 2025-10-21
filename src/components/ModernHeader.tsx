@@ -3,7 +3,7 @@ import { BluetoothDevice, EnvironmentInfo } from '../types';
 
 interface ModernHeaderProps {
   env: EnvironmentInfo;
-  devices: Record<string, BluetoothDevice>;
+  devices: Partial<Record<string, BluetoothDevice>>;
   sim: boolean;
   onSimToggle: (enabled: boolean) => void;
 }

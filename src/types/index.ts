@@ -42,6 +42,9 @@ export interface EnvironmentInfo {
   policy: boolean | null;
   availability: boolean | null;
   canUse: boolean | null;
+  supportsBluetooth: boolean;
+  bluetoothAvailable: boolean;
+  bluetoothEnabled: boolean;
 }
 
 export interface WorkoutPlan {
