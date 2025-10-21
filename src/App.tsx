@@ -40,6 +40,7 @@ function App() {
     route,
     isLoading,
     error,
+    lastLoadedFile,
     loadGPX,
     resetToDefault,
   } = useRoute();
@@ -167,10 +168,16 @@ function App() {
                 route={route}
                 isLoading={isLoading}
                 error={error}
-                loadGpxFile={loadGPX}
-                resetRoute={resetToDefault}
+                onLoadGPX={loadGPX}
+                onResetToDefault={resetToDefault}
               />
             </div>
+
+            {lastLoadedFile && (
+              <div className="mt-2 text-sm text-success-400">
+                Route loaded: {lastLoadedFile}
+              </div>
+            )}
 
             {waypoints.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-dark-300">
@@ -234,6 +241,7 @@ function App() {
                 metrics={metrics}
                 waypoints={waypoints}
                 onRouteClick={handleRouteClick}
+                showRouteInfo={true}
               />
             </div>
           </section>
