@@ -20,6 +20,8 @@ export interface UseRouteResult {
   loadGPX: (file: File) => Promise<Route>;
   /** Restores the route state to the configured default. */
   resetToDefault: () => void;
+  /** Clears any active error message. */
+  clearError: () => void;
 }
 
 const FALLBACK_ROUTE = buildRoute(20_000, 400, { name: "Rolling Hills" });
@@ -46,6 +48,10 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
 
   const readerRef = useRef<FileReader | null>(null);
 
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   useEffect(() => {
     setRoute(defaultRoute);
     setLastLoadedFile(null);
@@ -66,11 +72,11 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
       reader.abort();
     }
 
-    setError(null);
+    clearError();
     setIsLoading(false);
     setRoute(defaultRoute);
     setLastLoadedFile(null);
-  }, [defaultRoute]);
+  }, [clearError, defaultRoute]);
 
   const loadGPX = useCallback(
     (file: File) =>
@@ -83,7 +89,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
         }
 
         setIsLoading(true);
-        setError(null);
+        clearError();
         setLastLoadedFile(null);
 
         if (file.size > MAX_GPX_FILE_SIZE) {
@@ -125,7 +131,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
             const parsed = parseGPX(text);
             setRoute(parsed);
             setIsLoading(false);
-            setError(null);
+            clearError();
             setLastLoadedFile(file.name);
             clearReader();
             resolve(parsed);
@@ -168,7 +174,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
           reject(err instanceof Error ? err : new Error(message));
         }
       }),
-    []
+    [clearError]
   );
 
   useEffect(() => {
@@ -177,13 +183,13 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     }
 
     const timeout = window.setTimeout(() => {
-      setError(null);
+      clearError();
     }, 5000);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [error]);
+  }, [clearError, error]);
 
   return {
     route,
@@ -192,6 +198,7 @@ export const useRoute = (options: UseRouteOptions = {}): UseRouteResult => {
     lastLoadedFile,
     loadGPX,
     resetToDefault,
+    clearError,
   };
 };
 
