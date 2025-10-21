@@ -8,14 +8,13 @@ import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
 import { VirtualMap } from "./components/VirtualMap";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
-import { MapViewDisplay } from "./components/MapViewDisplay";
+import { StreetViewPlaceholder } from "./components/LoadingStates";
 import { WorkoutPanel } from "./components/WorkoutPanel";
 import { EnvDiagnostics } from "./components/EnvDiagnostics";
 import { BluetoothConnectPanel } from "./components/BluetoothConnectPanel";
 import { RouteLoader } from "./components/RouteLoader";
 import { FixBluetoothModal } from "./components/FixBluetoothModal";
 import { ViewToggle } from "./components/ViewToggle";
-import { StreetViewPlaceholder } from "./components/LoadingStates";
 
 function App() {
   const [sim, setSim] = useState(false);
@@ -158,7 +157,7 @@ function App() {
 
         <BluetoothConnectPanel
           env={env}
-          devices={devices}
+          devices={import('./types').BluetoothDevice}
           status={status}
           onConnectFTMS={connectFTMS}
           onConnectCPS={connectCPS}
@@ -185,7 +184,7 @@ function App() {
               <div className="lg:col-span-1 space-y-6">
                 <div className="grid grid-cols-2 gap-3 text-center">
                   <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
-                  <Metric label="Cadence" value={metrics.cadence} unit="rpm" target={targetCadence} />
+                  <Metric label="Caden" value={metrics.cadence} unit="rpm" target={targetCadence} />
                   <Metric label="Speed" value={metrics.speed} unit="kph" />
                   <Metric label="Distance" value={metrics.distance} unit="km" />
                   <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
@@ -305,96 +304,6 @@ function App() {
                 Analysis chart would be implemented here
               </div>
             </section>
-          </div>
-        )}
-
-        {activeTab === "settings" && (
-          <div className="space-y-6">
-            {/* Existing settings */}
-            
-            <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
-              <h2 className="text-lg font-medium mb-3">Google Maps Integration</h2>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-medium mb-2">Google Maps API Key</h3>
-                  <input
-                    type="password"
-                    value={googleMapsApiKey}
-                    onChange={(e) => setGoogleMapsApiKey(e.target.value)}
-                    placeholder="Enter your Google Maps API key"
-                    className="modern-input w-full"
-                  />
-                  <p className="text-xs text-neutral-400 mt-1">
-                    Get an API key from the Google Cloud Console with Maps JavaScript API and Street View Static API enabled
-                  </p>
-                </div>
-                
-                <div className="p-4 bg-primary-500/10 border border-primary-500/20 rounded-xl">
-                  <h4 className="text-sm font-medium text-primary-400 mb-2">API Usage Information</h4>
-                  <div className="text-xs text-neutral-400 space-y-1">
-                    <p>• Free tier: $200/month credit</p>
-                    <p>• Maps JavaScript API: $7/1,000 loads</p>
-                    <p>• Street View Static: $7/1,000 loads</p>
-                    <p>• Estimated cost: $5-15/month for personal use</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
-              <h2 className="text-lg font-medium mb-3">Mapbox Integration</h2>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-medium mb-2">Mapbox API Key</h3>
-                  <input
-                    type="password"
-                    value={mapboxApiKey}
-                    onChange={(e) => setMapboxApiKey(e.target.value)}
-                    placeholder="Enter your Mapbox API key"
-                    className="modern-input w-full"
-                  />
-                  <p className="text-xs text-neutral-400 mt-1">
-                    Get an API key from Mapbox.com with Maps JavaScript API enabled
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
-              <h2 className="text-lg font-medium mb-3">Data Recording</h2>
-              <div className="space-y-4">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 text-primary-600 bg-neutral-800 border-neutral-600 rounded focus:ring-primary-500" />
-                  <span>Record ride data automatically</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
-              <h2 className="text-lg font-medium mb-3">Units</h2>
-              <div className="space-y-4">
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2">
-                    <input type="radio" name="units" value="metric" defaultChecked className="w-4 h-4 text-primary-600 bg-neutral-800 border-neutral-600 rounded focus:ring-primary-500" />
-                    <span>Metric (km/h, km)</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input type="radio" name="units" value="imperial" className="w-4 h-4 text-primary-600 bg-neutral-800 border-neutral-600 rounded focus:ring-primary-500" />
-                    <span>Imperial (mph, miles)</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
-              <h2 className="text-lg font-medium mb-3">Display</h2>
-              <div className="space-y-4">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 text-primary-600 bg-neutral-800 border-neutral-600 rounded focus:ring-primary-500" />
-                  <span>Show animations</span>
-                </label>
-              </div>
-            </div>
           </div>
         )}
 
