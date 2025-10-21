@@ -1,6 +1,3 @@
-1. Find your existing App component
-2. Add these imports at the top:
-
 import { StreetViewDisplay } from './components/StreetViewDisplay';
 
 3. Add these state variables:
