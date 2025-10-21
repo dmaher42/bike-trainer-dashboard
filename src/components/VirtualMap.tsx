@@ -13,6 +13,7 @@ interface VirtualMapProps {
   metrics: Metrics;
   waypoints?: { x: number; y: number }[];
   onRouteClick?: (point: { x: number; y: number }) => void;
+  showRouteInfo?: boolean;
 }
 
 const MAP_PADDING = 0.08;
@@ -39,6 +40,7 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
   metrics,
   waypoints = [],
   onRouteClick,
+  showRouteInfo = false,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const baseId = useId();
@@ -303,6 +305,32 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
             ) : null}
           </svg>
         </div>
+
+        {showRouteInfo && (
+          <div className="mt-4 p-4 bg-dark-800/50 border border-dark-700 rounded-xl">
+            <h4 className="text-sm font-medium text-dark-300 mb-2">Route Information</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+              <div>
+                <span className="text-dark-500">Points:</span>
+                <span className="ml-2 text-dark-300">{route.pts.length}</span>
+              </div>
+              <div>
+                <span className="text-dark-500">Distance:</span>
+                <span className="ml-2 text-dark-300">{route.total.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-dark-500">Elevation:</span>
+                <span className="ml-2 text-dark-300">
+                  {route.pts.some((p) => p.elevation !== undefined) ? "Yes" : "No"}
+                </span>
+              </div>
+              <div>
+                <span className="text-dark-500">Name:</span>
+                <span className="ml-2 text-dark-300">{route.name || "Default Route"}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-4 text-center sm:grid-cols-3">
           <div className="rounded-2xl border border-glass-border bg-dark-900/50 p-4">
