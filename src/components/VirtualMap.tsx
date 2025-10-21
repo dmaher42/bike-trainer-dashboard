@@ -14,6 +14,7 @@ interface VirtualMapProps {
   waypoints?: { x: number; y: number }[];
   onRouteClick?: (point: { x: number; y: number }) => void;
   showRouteInfo?: boolean;
+  realCoordinates?: Array<{ lat: number; lng: number }>;
 }
 
 const MAP_PADDING = 0.08;
@@ -41,6 +42,7 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
   waypoints = [],
   onRouteClick,
   showRouteInfo = false,
+  realCoordinates,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const baseId = useId();
@@ -48,13 +50,21 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
   const routeGradientId = `${baseId}-routeGradient`;
   const glowFilterId = `${baseId}-glow`;
 
+  const routePoints = useMemo(() => {
+    if (realCoordinates?.length) {
+      return realCoordinates.map(({ lat, lng }) => [lng, lat] as [number, number]);
+    }
+
+    return route.pts.map(({ x, y }) => [x, y] as [number, number]);
+  }, [realCoordinates, route.pts]);
+
   const bounds = useMemo<Bounds>(() => {
-    if (!route.pts.length) {
+    if (!routePoints.length) {
       return defaultBounds;
     }
 
-    const xs = route.pts.map((point) => point.x);
-    const ys = route.pts.map((point) => point.y);
+    const xs = routePoints.map(([x]) => x);
+    const ys = routePoints.map(([, y]) => y);
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
     const minY = Math.min(...ys);
@@ -66,7 +76,7 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
       spanX: Math.max(maxX - minX, 1),
       spanY: Math.max(maxY - minY, 1),
     };
-  }, [route.pts]);
+  }, [routePoints]);
 
   const normalizePoint = useCallback(
     (point: RoutePoint | { x: number; y: number }) => {
@@ -87,17 +97,17 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
   );
 
   const routePolyline = useMemo(() => {
-    if (!route.pts.length) {
+    if (!routePoints.length) {
       return "";
     }
 
-    return route.pts
-      .map((point) => {
-        const normalised = normalizePoint(point);
+    return routePoints
+      .map(([x, y]) => {
+        const normalised = normalizePoint({ x, y });
         return `${(normalised.x * 1000).toFixed(2)},${(normalised.y * 500).toFixed(2)}`;
       })
       .join(" ");
-  }, [normalizePoint, route.pts]);
+  }, [normalizePoint, routePoints]);
 
   const totalDistance = useMemo(() => {
     if (route.total > 0) {
@@ -113,16 +123,33 @@ const VirtualMap: React.FC<VirtualMapProps> = ({
     : 0;
 
   const currentPosition = useMemo(() => {
+    if (realCoordinates?.length) {
+      if (realCoordinates.length === 1) {
+        return realCoordinates[0];
+      }
+
+      const index = Math.min(
+        realCoordinates.length - 1,
+        Math.floor(fracOnLoop * (realCoordinates.length - 1)),
+      );
+
+      return realCoordinates[index];
+    }
+
     if (!route.pts.length) {
       return null;
     }
 
     return interpRoute(route, fracOnLoop);
-  }, [fracOnLoop, route]);
+  }, [fracOnLoop, realCoordinates, route]);
 
   const currentPositionNormalised = useMemo(() => {
     if (!currentPosition) {
       return null;
+    }
+
+    if ("lat" in currentPosition && "lng" in currentPosition) {
+      return normalizePoint({ x: currentPosition.lng, y: currentPosition.lat });
     }
 
     return normalizePoint(currentPosition);
