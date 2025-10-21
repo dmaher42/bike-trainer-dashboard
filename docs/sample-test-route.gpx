@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Bike Trainer Dashboard">
+  <metadata>
+    <name>Sample Test Route</name>
+    <desc>A simple test route for debugging GPX loading</desc>
+  </metadata>
+  <trk>
+    <name>Test Loop</name>
+    <trkseg>
+      <trkpt lat="37.7749" lon="-122.4194">
+        <ele>10</ele>
+        <time>2023-01-01T10:00:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7750" lon="-122.4195">
+        <ele>12</ele>
+        <time>2023-01-01T10:01:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7751" lon="-122.4196">
+        <ele>15</ele>
+        <time>2023-01-01T10:02:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7750" lon="-122.4197">
+        <ele>18</ele>
+        <time>2023-01-01T10:03:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7749" lon="-122.4196">
+        <ele>20</ele>
+        <time>2023-01-01T10:04:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7748" lon="-122.4195">
+        <ele>18</ele>
+        <time>2023-01-01T10:05:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7748" lon="-122.4194">
+        <ele>15</ele>
+        <time>2023-01-01T10:06:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7749" lon="-122.4193">
+        <ele>12</ele>
+        <time>2023-01-01T10:07:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7750" lon="-122.4193">
+        <ele>10</ele>
+        <time>2023-01-01T10:08:00Z</time>
+      </trkpt>
+      <trkpt lat="37.7751" lon="-122.4194">
+        <ele>8</ele>
+        <time>2023-01-01T10:09:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

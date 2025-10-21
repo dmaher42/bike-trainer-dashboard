@@ -16,6 +16,9 @@ import { ModernHeader } from "./components/ModernHeader";
 import { ModernNavigation } from "./components/ModernNavigation";
 import { ModernControls } from "./components/ModernControls";
 import { LoadingSpinner } from "./components/LoadingStates";
+import { BluetoothStatusDisplay } from "./components/BluetoothStatusDisplay";
+import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
+import FixBluetoothModal from "./components/FixBluetoothModal";
 
 const DEVICE_KEYS = ["ftms", "cps", "hr"] as const;
 
@@ -35,6 +38,8 @@ function App() {
   const [rideOn, setRideOn] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [waypoints, setWaypoints] = useState<{ x: number; y: number }[]>([]);
+  const [isFixModalOpen, setIsFixModalOpen] = useState(false);
+  const [isRefreshingEnv, setIsRefreshingEnv] = useState(false);
 
   const { settings, updateSetting } = useSettings();
 
@@ -63,21 +68,17 @@ function App() {
     statuses,
     errors,
     disconnect,
+    refreshEnvironment,
+    connectFTMS,
+    connectCPS,
+    connectHR,
+    connectionState,
   } = useBluetooth();
   const { isActive: activeWorkout, targetPower, targetCadence } = useWorkout();
   const { saveRide } = useRideHistory();
 
   const ftmsDevice = devices.ftms;
   const { setTargetPower, initializeControl } = useTrainerControl(ftmsDevice);
-
-  const isConnecting = useMemo(
-    () => ({
-      ftms: statuses.ftms === "connecting" || statuses.ftms === "requesting",
-      cps: statuses.cps === "connecting" || statuses.cps === "requesting",
-      hr: statuses.hr === "connecting" || statuses.hr === "requesting",
-    }),
-    [statuses],
-  );
 
   const bluetoothStatusMessage = useMemo(() => {
     const activeConnection = DEVICE_KEYS.find((key) =>
@@ -112,6 +113,15 @@ function App() {
       }
     });
   }, [devices, disconnect]);
+
+  const handleRefreshEnv = useCallback(async () => {
+    setIsRefreshingEnv(true);
+    try {
+      await refreshEnvironment();
+    } finally {
+      setIsRefreshingEnv(false);
+    }
+  }, [refreshEnvironment]);
 
   const handleSimToggle = useCallback(
     (enabled: boolean) => {
@@ -174,6 +184,28 @@ function App() {
         <ModernNavigation activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab as AppTab)} />
 
         <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <BluetoothStatusDisplay
+              env={env}
+              devices={devices}
+              onRefresh={handleRefreshEnv}
+              isRefreshing={isRefreshingEnv}
+            />
+            <BluetoothConnectPanel
+              env={env}
+              devices={devices}
+              status={bluetoothStatusMessage ?? undefined}
+              onConnectFTMS={connectFTMS}
+              onConnectCPS={connectCPS}
+              onConnectHR={connectHR}
+              onRefreshEnv={handleRefreshEnv}
+              onShowFix={() => setIsFixModalOpen(true)}
+              onDisconnectDevice={disconnect}
+              onDisconnectAll={handleDisconnectAll}
+              isConnecting={connectionState.isConnecting}
+            />
+          </div>
+
           <section className="glass-card p-6">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-2">
@@ -330,6 +362,8 @@ function App() {
           )}
         </main>
       </div>
+
+      <FixBluetoothModal isOpen={isFixModalOpen} onClose={() => setIsFixModalOpen(false)} />
     </div>
   );
 }
