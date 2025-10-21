@@ -120,4 +120,47 @@ export class GoogleMapsManager {
       });
     });
   }
+
+  async geocodeAddress(address: string): Promise<google.maps.LatLng> {
+    if (!this.isLoaded()) {
+      throw new Error("Google Maps has not finished loading");
+    }
+
+    return new Promise((resolve, reject) => {
+      const geocoder = new google.maps.Geocoder();
+
+      geocoder.geocode({ address }, (results, status) => {
+        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
+          reject(new Error("Unable to determine coordinates for the given address"));
+          return;
+        }
+
+        const location = results[0]?.geometry?.location;
+        if (!location) {
+          reject(new Error("Unable to determine coordinates for the given address"));
+          return;
+        }
+
+        resolve(location);
+      });
+    });
+  }
+
+  calculateDistance(
+    from: google.maps.LatLng | google.maps.LatLngLiteral,
+    to: google.maps.LatLng | google.maps.LatLngLiteral,
+  ): number {
+    if (!this.isLoaded()) {
+      throw new Error("Google Maps has not finished loading");
+    }
+
+    if (!google.maps.geometry?.spherical) {
+      throw new Error("Google Maps geometry library is not available");
+    }
+
+    return google.maps.geometry.spherical.computeDistanceBetween(
+      from as google.maps.LatLng,
+      to as google.maps.LatLng,
+    );
+  }
 }

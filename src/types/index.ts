@@ -26,6 +26,8 @@ export interface RoutePoint {
   x: number;
   y: number;
   elevation?: number;
+  lat?: number;
+  lng?: number;
 }
 
 export interface Route {
