@@ -15,14 +15,6 @@ import { ModernHeader } from "./components/ModernHeader";
 import { ModernNavigation } from "./components/ModernNavigation";
 import { ModernControls } from "./components/ModernControls";
 import { LoadingSpinner } from "./components/LoadingStates";
-import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
-
-const DEVICE_KEYS = ["ftms", "cps", "hr"] as const;
-const DEVICE_LABELS: Record<(typeof DEVICE_KEYS)[number], string> = {
-  ftms: "Smart Trainer",
-  cps: "Power Meter",
-  hr: "Heart Rate Monitor",
-};
 
 function App() {
   type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
@@ -52,17 +44,7 @@ function App() {
     resetToDefault,
   } = useRoute();
 
-  const {
-    environment: env,
-    connectedDevices: devices,
-    statuses,
-    errors,
-    refreshEnvironment,
-    connectFTMS,
-    connectCPS,
-    connectHR,
-    disconnect,
-  } = useBluetooth();
+  const { environment: env, connectedDevices: devices } = useBluetooth();
   const { isActive: activeWorkout, targetPower, targetCadence } = useWorkout();
   const { saveRide } = useRideHistory();
 
@@ -212,21 +194,6 @@ function App() {
 
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1 space-y-6">
-              <BluetoothConnectPanel
-                env={env}
-                devices={devices}
-                status={bluetoothStatusMessage}
-                onConnectFTMS={connectFTMS}
-                onConnectCPS={connectCPS}
-                onConnectHR={connectHR}
-                onDisconnectDevice={disconnect}
-                onDisconnectAll={handleDisconnectAll}
-                onRefreshEnv={refreshEnvironment}
-                onShowFix={refreshEnvironment}
-                isConnecting={isConnecting}
-                errors={errors}
-              />
-
               {/* Metrics Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
