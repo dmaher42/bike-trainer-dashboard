@@ -7,6 +7,9 @@ import { useRoute } from "./hooks/useRoute";
 import VirtualMap from "./components/VirtualMap";
 import RouteLoader from "./components/RouteLoader";
 import { GPXDebugPanel } from "./components/GPXDebugPanel";
+import { StreetViewDisplay } from "./components/StreetViewDisplay";
+import { MapViewDisplay } from "./components/MapViewDisplay";
+import { ViewToggle } from "./components/ViewToggle";
 import { useSettings } from "./hooks/useSettings";
 import useBluetooth from "./hooks/useBluetooth";
 import useWorkout from "./hooks/useWorkout";
@@ -40,6 +43,9 @@ function App() {
   const [waypoints, setWaypoints] = useState<{ x: number; y: number }[]>([]);
   const [isFixModalOpen, setIsFixModalOpen] = useState(false);
   const [isRefreshingEnv, setIsRefreshingEnv] = useState(false);
+  const [currentView, setCurrentView] = useState<"street" | "map" | "virtual">("virtual");
+  const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>("");
+  const [currentLocation, setCurrentLocation] = useState<string>("");
 
   const { settings, updateSetting } = useSettings();
 
@@ -105,6 +111,14 @@ function App() {
     return null;
   }, [devices, env.canUse, errors, statuses]);
 
+  const routeProgress = useMemo(() => {
+    if (!Number.isFinite(metrics.distance)) {
+      return 0;
+    }
+
+    return metrics.distance / 5;
+  }, [metrics.distance]);
+
   const handleDisconnectAll = useCallback(() => {
     DEVICE_KEYS.forEach((key) => {
       const device = devices[key];
@@ -134,6 +148,12 @@ function App() {
   useEffect(() => {
     setSim(settings.autoStartRide);
   }, [settings.autoStartRide]);
+
+  useEffect(() => {
+    if (currentView !== "street") {
+      setCurrentLocation("");
+    }
+  }, [currentView]);
 
   useEffect(() => {
     if (ftmsDevice?.connected) {
@@ -206,99 +226,163 @@ function App() {
             />
           </div>
 
-          <section className="glass-card p-6">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-              <div className="space-y-2">
-                <h2 className="text-2xl font-semibold text-dark-50">Virtual Route</h2>
-                <p className="text-dark-400 text-sm">
-                  Follow immersive courses, add waypoints, and let the trainer adjust automatically.
+          {activeTab === "dashboard" && (
+            <>
+              <section className="glass-card p-6">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-semibold text-dark-50">Virtual Route</h2>
+                    <p className="text-dark-400 text-sm">
+                      Follow immersive courses, add waypoints, and let the trainer adjust automatically.
+                    </p>
+                  </div>
+                  <RouteLoader
+                    route={route}
+                    isLoading={isLoading}
+                    error={error}
+                    onLoadGPX={loadGPX}
+                    onResetToDefault={resetToDefault}
+                  />
+                </div>
+
+                {lastLoadedFile && (
+                  <div className="mt-2 text-sm text-success-400">
+                    Route loaded: {lastLoadedFile}
+                  </div>
+                )}
+
+                {waypoints.length > 0 && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-dark-300">
+                    <span>Waypoints: {waypoints.length}</span>
+                    <button
+                      onClick={() => {
+                        setWaypoints([]);
+                        setStatus("Waypoints cleared");
+                      }}
+                      className="btn-secondary px-4 py-2 text-xs font-medium"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+
+                <p className="mt-4 text-sm text-dark-400">
+                  Tip: Load a .gpx file to follow a real-world route.
                 </p>
-              </div>
-              <RouteLoader
-                route={route}
-                isLoading={isLoading}
-                error={error}
-                onLoadGPX={loadGPX}
-                onResetToDefault={resetToDefault}
-              />
-            </div>
 
-            {lastLoadedFile && (
-              <div className="mt-2 text-sm text-success-400">
-                Route loaded: {lastLoadedFile}
-              </div>
-            )}
+                <div className="mt-6">
+                  <GPXDebugPanel route={route} error={error} onClearError={clearError} />
+                </div>
+              </section>
 
-            {waypoints.length > 0 && (
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-dark-300">
-                <span>Waypoints: {waypoints.length}</span>
-                <button
-                  onClick={() => {
-                    setWaypoints([]);
-                    setStatus("Waypoints cleared");
-                  }}
-                  className="btn-secondary px-4 py-2 text-xs font-medium"
-                >
-                  Clear
-                </button>
-              </div>
-            )}
+              <div className="space-y-6">
+                <div className="flex justify-center">
+                  <ViewToggle
+                    currentView={currentView}
+                    onViewChange={setCurrentView}
+                    disabled={!googleMapsApiKey}
+                  />
+                </div>
 
-            <p className="mt-4 text-sm text-dark-400">
-              Tip: Load a .gpx file to follow a real-world route.
-            </p>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                  <div className="lg:col-span-1 space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
+                      <Metric
+                        label="Cadence"
+                        value={metrics.cadence}
+                        unit="rpm"
+                        target={targetCadence}
+                      />
+                      <Metric label="Speed" value={metrics.speed} unit="kph" />
+                      <Metric label="Distance" value={metrics.distance} unit="km" />
+                      <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
+                      <Metric label="Elapsed" value={elapsed} unit="" />
+                    </div>
 
-            <div className="mt-6">
-              <GPXDebugPanel route={route} error={error} onClearError={clearError} />
-            </div>
-          </section>
+                    <div className="glass-card p-6">
+                      <ModernControls
+                        rideOn={rideOn}
+                        onStartRide={handleStartRide}
+                        onStopRide={handleStopRide}
+                        onResetRide={handleResetRide}
+                        onExportCSV={() =>
+                          downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)
+                        }
+                        samples={samples}
+                      />
+                    </div>
 
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1 space-y-6">
-              {/* Metrics Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
-                <Metric label="Cadence" value={metrics.cadence} unit="rpm" target={targetCadence} />
-                <Metric label="Speed" value={metrics.speed} unit="kph" />
-                <Metric label="Distance" value={metrics.distance} unit="km" />
-                <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
-                <Metric label="Elapsed" value={elapsed} unit="" />
-              </div>
+                    {status && (
+                      <div className="glass-card p-4">
+                        <div className="flex items-center gap-3">
+                          <LoadingSpinner size="sm" />
+                          <span className="text-dark-300">{status}</span>
+                        </div>
+                      </div>
+                    )}
 
-              {/* Controls */}
-              <div className="glass-card p-6">
-                <ModernControls
-                  rideOn={rideOn}
-                  onStartRide={handleStartRide}
-                  onStopRide={handleStopRide}
-                  onResetRide={handleResetRide}
-                  onExportCSV={() => downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)}
-                  samples={samples}
-                />
-              </div>
+                    {currentView === "street" && currentLocation && (
+                      <div className="glass-card p-4">
+                        <h4 className="text-sm font-medium text-dark-200">Current Location</h4>
+                        <p className="mt-1 text-sm text-dark-400">{currentLocation}</p>
+                      </div>
+                    )}
+                  </div>
 
-              {/* Status */}
-              {status && (
-                <div className="glass-card p-4">
-                  <div className="flex items-center gap-3">
-                    <LoadingSpinner size="sm" />
-                    <span className="text-dark-300">{status}</span>
+                  <div className="lg:col-span-2 space-y-4">
+                    {currentView === "street" && googleMapsApiKey && (
+                      <StreetViewDisplay
+                        route={route}
+                        currentPosition={routeProgress}
+                        isRiding={rideOn}
+                        apiKey={googleMapsApiKey}
+                        onLocationUpdate={setCurrentLocation}
+                        onError={(errorMessage) =>
+                          setStatus(`Street View error: ${errorMessage}`)
+                        }
+                      />
+                    )}
+
+                    {currentView === "map" && googleMapsApiKey && (
+                      <MapViewDisplay
+                        route={route}
+                        currentPosition={routeProgress}
+                        apiKey={googleMapsApiKey}
+                        height="400px"
+                        showTraffic={false}
+                      />
+                    )}
+
+                    {currentView === "virtual" && (
+                      <VirtualMap
+                        route={route}
+                        metrics={metrics}
+                        waypoints={waypoints}
+                        onRouteClick={handleRouteClick}
+                        showRouteInfo={true}
+                      />
+                    )}
+
+                    {!googleMapsApiKey && (
+                      <div className="glass-card p-8 text-center">
+                        <div className="text-4xl mb-4">🗺️</div>
+                        <h3 className="text-lg font-medium text-dark-200 mb-2">
+                          Google Maps Required
+                        </h3>
+                        <p className="text-dark-400 mb-4">
+                          Add your Google Maps API key in Settings to enable Street View and Map View
+                        </p>
+                        <button onClick={() => setActiveTab("settings")} className="btn-primary">
+                          Go to Settings
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* Virtual Map */}
-            <div className="lg:col-span-2">
-              <VirtualMap
-                route={route}
-                metrics={metrics}
-                waypoints={waypoints}
-                onRouteClick={handleRouteClick}
-                showRouteInfo={true}
-              />
-            </div>
-          </section>
+              </div>
+            </>
+          )}
 
           {activeTab === "settings" && (
             <section className="glass-card p-6">
@@ -356,6 +440,25 @@ function App() {
                     />
                     <span>Show animations</span>
                   </label>
+                </div>
+              </div>
+
+              <div className="mt-6 border border-neutral-800 rounded-2xl p-4 bg-neutral-900/50">
+                <h2 className="text-lg font-medium mb-3">Google Maps Integration</h2>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-medium mb-2">Google Maps API Key</h3>
+                    <input
+                      type="password"
+                      value={googleMapsApiKey}
+                      onChange={(e) => setGoogleMapsApiKey(e.target.value)}
+                      placeholder="Enter your Google Maps API key"
+                      className="modern-input w-full"
+                    />
+                    <p className="text-xs text-neutral-400 mt-1">
+                      Get an API key from the Google Cloud Console with Maps JavaScript API and Street View Static API enabled
+                    </p>
+                  </div>
                 </div>
               </div>
             </section>

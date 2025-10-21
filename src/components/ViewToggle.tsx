@@ -1,18 +1,18 @@
-import React from 'react';
+import React from "react";
 
-export type ViewMode = 'street' | 'map' | 'virtual';
+type ViewOption = "street" | "map" | "virtual";
 
 interface ViewToggleProps {
-  currentView: ViewMode;
-  onViewChange: (view: ViewMode) => void;
+  currentView: ViewOption;
+  onViewChange: (view: ViewOption) => void;
   disabled?: boolean;
 }
 
-const views: Array<{ id: ViewMode; label: string; icon: string }> = [
-  { id: 'street', label: 'Street View', icon: '🏙️' },
-  { id: 'map', label: 'Map View', icon: '🗺️' },
-  { id: 'virtual', label: 'Virtual Map', icon: '🚴' },
-];
+const VIEW_LABELS: Record<ViewOption, string> = {
+  street: "Street View",
+  map: "Map View",
+  virtual: "Virtual View",
+};
 
 export const ViewToggle: React.FC<ViewToggleProps> = ({
   currentView,
@@ -20,23 +20,29 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
   disabled = false,
 }) => {
   return (
-    <div className="flex gap-2 p-1 bg-dark-800/50 rounded-xl">
-      {views.map((view) => (
-        <button
-          key={view.id}
-          type="button"
-          onClick={() => onViewChange(view.id)}
-          disabled={disabled}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-            currentView === view.id
-              ? 'bg-primary-600 text-white'
-              : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/50'
-          } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          <span>{view.icon}</span>
-          <span className="hidden sm:inline">{view.label}</span>
-        </button>
-      ))}
+    <div className="inline-flex items-center rounded-full bg-dark-900/80 p-2 shadow-inner">
+      {(Object.keys(VIEW_LABELS) as ViewOption[]).map((view) => {
+        const isActive = currentView === view;
+        const isDisabled = disabled && view !== "virtual";
+
+        return (
+          <button
+            key={view}
+            type="button"
+            onClick={() => onViewChange(view)}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-all ${
+              isActive
+                ? "bg-primary-500 text-white shadow-lg"
+                : "text-dark-300 hover:bg-dark-800 hover:text-dark-50"
+            } ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+            disabled={isDisabled}
+          >
+            {VIEW_LABELS[view]}
+          </button>
+        );
+      })}
     </div>
   );
 };
+
+export default ViewToggle;
