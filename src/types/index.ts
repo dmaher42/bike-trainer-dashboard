@@ -27,6 +27,7 @@ export interface RoutePoint {
   y: number;
   elevation?: number;
   lat?: number;
+  lon?: number;
   lng?: number;
 }
 
@@ -35,6 +36,12 @@ export interface Route {
   cum: number[];
   total: number;
   name?: string;
+  bounds?: {
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
+  };
 }
 
 export interface EnvironmentInfo {

@@ -8,7 +8,6 @@ import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
 import VirtualMap from "./components/VirtualMap";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
-import { StreetViewPlaceholder } from "./components/LoadingStates";
 import WorkoutPanel from "./components/WorkoutPanel";
 import EnvDiagnostics from "./components/EnvDiagnostics";
 import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
@@ -52,7 +51,6 @@ function App() {
   const [currentView, setCurrentView] = useState<ViewOption>("virtual");
 
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
-  const [currentLocation, setCurrentLocation] = useState<string>('');
   const [mapboxApiKey, setMapboxApiKey] = useState<string>('');
   const [mapboxSettings, setMapboxSettings] = useState({
     showBuildings: true,
@@ -300,21 +298,14 @@ function App() {
               <VirtualMap route={route} metrics={metrics} showRouteInfo />
             )}
 
-            {currentView === "street" && googleMapsApiKey && (
+            {currentView === "street" && (
               <StreetViewDisplay
                 route={route}
-                currentPosition={metrics.distance / 5}
+                distance={metrics.distance}
+                routeTotal={route.total}
                 isRiding={rideOn}
                 apiKey={googleMapsApiKey}
-                onLocationUpdate={setCurrentLocation}
-              />
-            )}
-
-            {currentView === "street" && !googleMapsApiKey && (
-              <StreetViewPlaceholder
-                onAddApiKey={() => handleTabChange("settings")}
-                title="Street View Unavailable"
-                description="Add your Google Maps API key to enable Street View functionality"
+                onError={(message) => console.error(message)}
               />
             )}
 

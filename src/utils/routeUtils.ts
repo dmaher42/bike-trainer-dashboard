@@ -20,7 +20,11 @@ const DEFAULT_BUILD_OPTIONS: Required<Omit<BuildRouteOptions, "name">> = {
   curvature: 0.15,
 };
 
-function computeRouteMetrics(pts: RoutePoint[], name?: string): Route {
+function computeRouteMetrics(
+  pts: RoutePoint[],
+  name?: string,
+  bounds?: Route["bounds"],
+): Route {
   if (pts.length < 2) {
     throw new Error("Route requires at least two points");
   }
@@ -40,6 +44,7 @@ function computeRouteMetrics(pts: RoutePoint[], name?: string): Route {
     cum,
     total: cum[cum.length - 1],
     name,
+    ...(bounds ? { bounds } : {}),
   };
 }
 
@@ -130,6 +135,9 @@ export function interpRoute(route: Route, fraction: number): RoutePoint {
     x: lower.x + (upper.x - lower.x) * localT,
     y: lower.y + (upper.y - lower.y) * localT,
     elevation: interpolate(lower.elevation, upper.elevation),
+    lat: interpolate(lower.lat, upper.lat),
+    lon: interpolate(lower.lon ?? lower.lng, upper.lon ?? upper.lng),
+    lng: interpolate(lower.lng ?? lower.lon, upper.lng ?? upper.lon),
   };
 }
 
@@ -177,6 +185,8 @@ export function parseGPX(gpxXml: string): Route {
     let maxLon = -180;
     let hasElevation = false;
 
+    let validCoordinateCount = 0;
+
     trackPoints.forEach((point) => {
       const lat = parseFloat(point.getAttribute("lat") ?? "NaN");
       const lon = parseFloat(point.getAttribute("lon") ?? "NaN");
@@ -192,12 +202,17 @@ export function parseGPX(gpxXml: string): Route {
       minLon = Math.min(minLon, lon);
       maxLon = Math.max(maxLon, lon);
 
+      validCoordinateCount += 1;
+
       if (ele !== undefined) {
         hasElevation = true;
       }
     });
 
-    if (minLat === 90 && maxLat === -90 && minLon === 180 && maxLon === -180) {
+    if (
+      validCoordinateCount === 0 ||
+      (minLat === 90 && maxLat === -90 && minLon === 180 && maxLon === -180)
+    ) {
       throw new Error("No valid coordinates found in GPX file");
     }
 
@@ -236,6 +251,9 @@ export function parseGPX(gpxXml: string): Route {
           ele && hasElevation && Number.isFinite(parseFloat(ele))
             ? parseFloat(ele)
             : undefined,
+        lat,
+        lon,
+        lng: lon,
       });
     });
 
@@ -263,7 +281,12 @@ export function parseGPX(gpxXml: string): Route {
       }
     }
 
-    const route = computeRouteMetrics(pts, routeName ?? "GPX Route");
+    const route = computeRouteMetrics(pts, routeName ?? "GPX Route", {
+      minLat,
+      maxLat,
+      minLon,
+      maxLon,
+    });
 
     console.log(
       `Route "${route.name ?? "Unnamed"}" parsed successfully: ${route.pts.length} points, ${route.total.toFixed(
