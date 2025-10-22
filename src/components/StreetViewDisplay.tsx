@@ -11,6 +11,10 @@ import { useMapSettings } from "../hooks/useMapSettings";
 import { STREET_VIEW_MAX_PAN_MS, STREET_VIEW_MIN_PAN_MS } from "../types/settings";
 
 const MIN_POINTS_FOR_STREET_VIEW = 2;
+const LOOKAHEAD = 5;
+const MIN_INDEX_STEP_FOR_HEADING = 1;
+const MAX_TURN_PER_UPDATE = 20;
+const HEADING_EMA_ALPHA = 0.25;
 
 interface StreetViewDisplayProps {
   route: Route;
@@ -94,6 +98,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const targetHeadingRef = useRef(0);
   const targetPitchRef = useRef(0);
   const lastFrameMsRef = useRef(0);
+  const smoothedHeadingRef = useRef<number | null>(null);
 
   const {
     streetViewUpdateMs,
@@ -186,6 +191,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     lastIndexRef.current = -1;
     lastAppliedIndexRef.current = -1;
     lastUpdateMsRef.current = 0;
+    smoothedHeadingRef.current = null;
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
       setCurrentLocation("");
     }
@@ -194,6 +200,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   useEffect(() => {
     lastUpdateMsRef.current = 0;
     lastAppliedIndexRef.current = -1;
+    smoothedHeadingRef.current = null;
   }, [usePointStep, streetViewPointsPerStep]);
 
   useEffect(() => {
@@ -218,6 +225,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       routeLatLngs.length > 1
         ? bearing(routeLatLngs[0], routeLatLngs[1])
         : 0;
+    smoothedHeadingRef.current = initialHeading;
 
     if (!panoramaRef.current) {
       panoramaRef.current = new google.maps.StreetViewPanorama(
@@ -280,22 +288,47 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       lastUpdateMsRef.current = now;
     }
 
+    const previousAppliedIndex = lastAppliedIndexRef.current;
     const position = routeLatLngs[targetIndex];
-    lastAppliedIndexRef.current = targetIndex;
 
     panorama.setPosition(position);
 
-    const headingTarget = (() => {
-      if (targetIndex < routeLatLngs.length - 1) {
-        return routeLatLngs[targetIndex + 1];
-      }
-      if (targetIndex > 0) {
-        return routeLatLngs[targetIndex - 1];
-      }
-      return position;
-    })();
+    const clampedIndex = Math.max(0, Math.min(routeLatLngs.length - 1, targetIndex));
+    const forwardIndex = Math.min(routeLatLngs.length - 1, clampedIndex + LOOKAHEAD);
+    const backwardIndex = Math.max(0, clampedIndex - LOOKAHEAD);
 
-    const heading = headingTarget === position ? 0 : bearing(position, headingTarget);
+    const headingTargetPoint =
+      forwardIndex !== clampedIndex
+        ? routeLatLngs[forwardIndex]
+        : backwardIndex !== clampedIndex
+        ? routeLatLngs[backwardIndex]
+        : position;
+
+    const lastApplied = previousAppliedIndex ?? -1;
+    const smallStep =
+      lastApplied !== -1 &&
+      Math.abs(targetIndex - lastApplied) < MIN_INDEX_STEP_FOR_HEADING;
+
+    let rawHeading: number;
+    if (smallStep || headingTargetPoint === position) {
+      const currentPov = panorama.getPov ? panorama.getPov() : undefined;
+      rawHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
+    } else {
+      rawHeading = bearing(position, headingTargetPoint);
+    }
+
+    const prev = smoothedHeadingRef.current ?? rawHeading;
+    const deltaShortest = shortestDeltaDeg(prev, rawHeading);
+    const clampedDelta = Math.max(
+      -MAX_TURN_PER_UPDATE,
+      Math.min(MAX_TURN_PER_UPDATE, deltaShortest),
+    );
+    const clampedHeading = normalizeDeg(prev + clampedDelta);
+    const targetHeadingStable = normalizeDeg(
+      prev + HEADING_EMA_ALPHA * shortestDeltaDeg(prev, clampedHeading),
+    );
+    smoothedHeadingRef.current = targetHeadingStable;
+
     const targetPitch = 0;
     panorama.setZoom(1);
 
@@ -311,16 +344,18 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       streetViewPanMs <= STREET_VIEW_MIN_PAN_MS
     ) {
       cancelOngoingAnimation();
-      panorama.setPov({ heading, pitch: targetPitch });
+      panorama.setPov({ heading: targetHeadingStable, pitch: targetPitch, zoom: 1 });
     } else {
-      const currentPov = panorama.getPov ? panorama.getPov() : { heading, pitch: targetPitch };
+      const currentPov = panorama.getPov
+        ? panorama.getPov()
+        : { heading: targetHeadingStable, pitch: targetPitch, zoom: 1 };
 
       cancelOngoingAnimation();
       animStartRef.current = performance.now();
       lastFrameMsRef.current = 0;
-      startHeadingRef.current = currentPov.heading ?? heading;
+      startHeadingRef.current = currentPov.heading ?? targetHeadingStable;
       startPitchRef.current = currentPov.pitch ?? targetPitch;
-      targetHeadingRef.current = heading;
+      targetHeadingRef.current = targetHeadingStable;
       targetPitchRef.current = targetPitch;
 
       const duration = Math.min(
@@ -362,6 +397,8 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
       rafIdRef.current = requestAnimationFrame(animate);
     }
+
+    lastAppliedIndexRef.current = targetIndex;
 
     const manager = mapsManagerRef.current;
     if (manager?.isLoaded() && lastIndexRef.current !== targetIndex) {
