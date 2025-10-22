@@ -103,38 +103,55 @@ const Metric: React.FC<MetricProps> = ({
 
   return (
     <section
-      className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm transition-colors sm:p-5 md:flex-row md:items-center md:justify-between"
       aria-label={`${label} metric`}
+      className="
+        rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm transition-colors
+        sm:p-5
+        min-h-[96px]
+      "
     >
-      <div className="flex flex-col gap-1 text-left">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          {label}
-        </span>
-        <div className="flex flex-wrap items-baseline gap-1 text-3xl font-bold text-slate-900 sm:text-4xl">
-          <span>{formattedValue}</span>
-          {unit ? (
-            <span className="text-base font-medium text-slate-500 sm:text-lg">{unit}</span>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex flex-col items-start gap-1 text-xs sm:text-sm md:items-end">
-        <span
-          className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium ${indicatorClasses}`}
-        >
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/60 p-0.5 text-inherit">
-            {indicatorIcon}
+      <div
+        className="
+          grid grid-cols-1 gap-3
+          md:grid-cols-[1fr_10.5rem]
+          md:items-center
+        "
+      >
+        <div className="flex flex-col gap-1 text-left">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {label}
           </span>
-          {isOnTarget === null
-            ? "No target"
-            : isOnTarget
-              ? "On target"
-              : "Below target"}
-        </span>
-        {hasTarget ? (
-          <span className="text-slate-500">Target: {formattedTarget}</span>
-        ) : (
-          <span className="text-slate-400">Awaiting goal</span>
-        )}
+          <div
+            className="
+              flex flex-wrap items-baseline gap-1
+              text-3xl sm:text-4xl font-bold text-slate-900 tabular-nums
+            "
+          >
+            <span>{formattedValue}</span>
+            {unit ? (
+              <span className="text-base font-medium text-slate-500 sm:text-lg">{unit}</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex flex-col items-start gap-1 text-xs sm:text-sm md:items-end">
+          <span
+            className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium ${indicatorClasses}`}
+          >
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/60 p-0.5 text-inherit">
+              {indicatorIcon}
+            </span>
+            {isOnTarget === null
+              ? "No target"
+              : isOnTarget
+                ? "On target"
+                : "Below target"}
+          </span>
+          {hasTarget ? (
+            <span className="text-slate-500 whitespace-nowrap">Target: {formattedTarget}</span>
+          ) : (
+            <span className="text-slate-400">Awaiting goal</span>
+          )}
+        </div>
       </div>
     </section>
   );
