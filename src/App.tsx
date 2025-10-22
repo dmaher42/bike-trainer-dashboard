@@ -354,8 +354,6 @@ function App() {
     activeWorkout,
     currentInterval,
     intervalTime,
-    targetPower,
-    targetCadence,
     startWorkout,
     stopWorkout,
   } = useWorkout();
@@ -578,8 +576,8 @@ function App() {
         <aside className="order-2 space-y-6 self-start lg:order-1 lg:sticky lg:top-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-[minmax(0,1fr)] text-center">
             {/* Top row - Priority live metrics */}
-            <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
-            <Metric label="Cadence" value={metrics.cadence} unit="rpm" target={targetCadence} />
+            <Metric label="Power" value={metrics.power} unit="W" />
+            <Metric label="Cadence" value={metrics.cadence} unit="rpm" />
             <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
 
             {/* Bottom row - Secondary metrics */}
