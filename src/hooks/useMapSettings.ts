@@ -20,6 +20,8 @@ const STORAGE_KEYS = {
   hudPosition: "hudPosition",
   panMs: "streetViewPanMs",
   lockForwardHeading: "streetViewLockForwardHeading",
+  usePowerToDriveSpeed: "usePowerToDriveSpeed",
+  streetViewMetersPerStep: "streetViewMetersPerStep",
 } as const;
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -118,6 +120,24 @@ export const useMapSettings = () => {
     return raw === "false" ? false : true;
   });
 
+  const [usePowerToDriveSpeed, setUsePowerToDriveSpeedState] = useState<boolean>(() => {
+    const storage = getStorage();
+    const raw = storage?.getItem(STORAGE_KEYS.usePowerToDriveSpeed);
+    return raw === "false" ? false : true;
+  });
+
+  const [streetViewMetersPerStep, setStreetViewMetersPerStepState] = useState<number>(() => {
+    const storage = getStorage();
+    const raw = storage?.getItem(STORAGE_KEYS.streetViewMetersPerStep) ?? null;
+    const numeric = raw ? Number(raw) : DEFAULT_MAP_SETTINGS.streetViewMetersPerStep;
+    if (!Number.isFinite(numeric)) {
+      return DEFAULT_MAP_SETTINGS.streetViewMetersPerStep;
+    }
+
+    const clamped = Math.trunc(numeric);
+    return Math.max(3, Math.min(50, clamped));
+  });
+
   useEffect(() => {
     const storage = getStorage();
     if (!storage) {
@@ -200,6 +220,38 @@ export const useMapSettings = () => {
     }
   }, [lockForwardHeading]);
 
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(
+        STORAGE_KEYS.usePowerToDriveSpeed,
+        String(usePowerToDriveSpeed),
+      );
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [usePowerToDriveSpeed]);
+
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(
+        STORAGE_KEYS.streetViewMetersPerStep,
+        String(streetViewMetersPerStep),
+      );
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [streetViewMetersPerStep]);
+
   const setStreetViewUpdateMs = useCallback((value: number) => {
     setStreetViewUpdateMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewUpdateMs;
@@ -232,6 +284,20 @@ export const useMapSettings = () => {
     });
   }, []);
 
+  const setUsePowerToDriveSpeed = useCallback((value: boolean) => {
+    setUsePowerToDriveSpeedState(Boolean(value));
+  }, []);
+
+  const setStreetViewMetersPerStep = useCallback((value: number) => {
+    setStreetViewMetersPerStepState((prev) => {
+      const fallback =
+        typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewMetersPerStep;
+      const numeric = Number.isFinite(value) ? Math.trunc(value) : fallback;
+      const clamped = Math.max(3, Math.min(50, numeric));
+      return clamped;
+    });
+  }, []);
+
   return {
     streetViewUpdateMs,
     setStreetViewUpdateMs,
@@ -245,6 +311,10 @@ export const useMapSettings = () => {
     setStreetViewPanMs,
     lockForwardHeading,
     setLockForwardHeading: setLockForwardHeadingState,
+    usePowerToDriveSpeed,
+    setUsePowerToDriveSpeed,
+    streetViewMetersPerStep,
+    setStreetViewMetersPerStep,
   } as const;
 };
 

@@ -7,6 +7,8 @@ export interface MapSettings {
   hudPosition?: HudPosition;
   streetViewPanMs?: number;
   lockForwardHeading?: boolean;
+  usePowerToDriveSpeed?: boolean;
+  streetViewMetersPerStep?: number;
 }
 
 export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
@@ -16,6 +18,8 @@ export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
   hudPosition: "top-left",
   streetViewPanMs: 0,
   lockForwardHeading: true,
+  usePowerToDriveSpeed: true,
+  streetViewMetersPerStep: 15,
 };
 
 export const STREET_VIEW_MIN_UPDATE_MS = 500;

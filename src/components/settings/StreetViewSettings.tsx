@@ -41,6 +41,10 @@ export function StreetViewSettings() {
     setStreetViewPanMs,
     lockForwardHeading,
     setLockForwardHeading,
+    usePowerToDriveSpeed,
+    setUsePowerToDriveSpeed,
+    streetViewMetersPerStep,
+    setStreetViewMetersPerStep,
   } = useMapSettings();
 
   const handleUpdateMsChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -151,6 +155,36 @@ export function StreetViewSettings() {
         />
         <span className="mt-1 block text-[11px] text-neutral-500">
           Ease Street View heading/pitch over this time. 0 = off.
+        </span>
+      </label>
+
+      <label className="mt-3 flex items-center gap-2 text-sm text-neutral-300">
+        <input
+          type="checkbox"
+          checked={usePowerToDriveSpeed}
+          onChange={(e) => setUsePowerToDriveSpeed(e.target.checked)}
+          className="h-4 w-4"
+        />
+        <span>Use power to drive speed (fallback when FTMS speed missing)</span>
+      </label>
+
+      <label className="mt-2 block text-sm text-neutral-300">
+        <span className="text-xs text-neutral-400">Street View step (meters)</span>
+        <input
+          type="number"
+          min={3}
+          max={50}
+          step={1}
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm"
+          value={streetViewMetersPerStep}
+          onChange={(e) =>
+            setStreetViewMetersPerStep(
+              Math.max(3, Math.min(50, Math.trunc(Number(e.target.value) || 15))),
+            )
+          }
+        />
+        <span className="mt-1 block text-[11px] text-neutral-500">
+          Camera advances every N meters you “ride”.
         </span>
       </label>
 
