@@ -102,6 +102,17 @@ describe("App tab hydration", () => {
     expect(markup).not.toContain('data-testid="screen-workouts"');
   });
 
+  it("disables Street View and Mapbox when API keys are missing", () => {
+    const markup = withWindowHash("#dashboard", () => renderToStaticMarkup(<App />));
+
+    expect(markup).toContain(
+      "Add a Google Maps API key in Settings to enable Street View.",
+    );
+    expect(markup).toContain("Add a Mapbox token in Settings to enable Mapbox 3D.");
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*><span>🏙️<\/span>Street<\/button>/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*><span>🗺️<\/span>Mapbox 3D<\/button>/);
+  });
+
   const scenarios: Array<{ hash: string; testId: string }> = [
     { hash: "#dashboard", testId: "screen-dashboard" },
     { hash: "#workouts", testId: "screen-workouts" },

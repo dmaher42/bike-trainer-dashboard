@@ -51,6 +51,26 @@ export const resolveActiveView = (
 const isAppTab = (value: string): value is AppTab =>
   TAB_CONFIG.some((tab) => tab.id === value);
 
+export const getFallbackView = (
+  currentView: ViewOption,
+  disabledOptions: Partial<Record<ViewOption, boolean>>,
+  defaultView: ViewOption = "virtual",
+): ViewOption => {
+  if (!disabledOptions[currentView]) {
+    return currentView;
+  }
+
+  const fallbackOrder: ViewOption[] = ["virtual", "street", "mapbox", "osm"];
+
+  for (const option of fallbackOrder) {
+    if (!disabledOptions[option]) {
+      return option;
+    }
+  }
+
+  return defaultView;
+};
+
 function App() {
   const [sim, setSim] = useState(false);
   const [rideOn, setRideOn] = useState(false);
