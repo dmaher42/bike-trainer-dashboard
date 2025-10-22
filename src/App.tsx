@@ -37,6 +37,26 @@ const VIEW_TITLES: Record<ViewOption, string> = {
 const isAppTab = (value: string): value is AppTab =>
   TAB_CONFIG.some((tab) => tab.id === value);
 
+export const getFallbackView = (
+  currentView: ViewOption,
+  disabledOptions: Partial<Record<ViewOption, boolean>>,
+  defaultView: ViewOption = "virtual",
+): ViewOption => {
+  if (!disabledOptions[currentView]) {
+    return currentView;
+  }
+
+  const fallbackOrder: ViewOption[] = ["virtual", "street", "mapbox", "osm"];
+
+  for (const option of fallbackOrder) {
+    if (!disabledOptions[option]) {
+      return option;
+    }
+  }
+
+  return defaultView;
+};
+
 function App() {
   const [sim, setSim] = useState(false);
   const [rideOn, setRideOn] = useState(false);
@@ -114,6 +134,29 @@ function App() {
   }, [activeTab]);
 
   const streetViewDisabled = !googleMapsApiKey;
+  const mapboxViewDisabled = !mapboxApiKey;
+
+  const disabledViewOptions = useMemo<Partial<Record<ViewOption, boolean>>>(() => {
+    const disabled: Partial<Record<ViewOption, boolean>> = {};
+
+    if (streetViewDisabled) {
+      disabled.street = true;
+    }
+
+    if (mapboxViewDisabled) {
+      disabled.mapbox = true;
+    }
+
+    return disabled;
+  }, [streetViewDisabled, mapboxViewDisabled]);
+
+  useEffect(() => {
+    const nextView = getFallbackView(currentView, disabledViewOptions);
+
+    if (nextView !== currentView) {
+      setCurrentView(nextView);
+    }
+  }, [currentView, disabledViewOptions]);
 
   const {
     environment,
@@ -207,12 +250,17 @@ function App() {
         <ViewToggle
           value={currentView}
           onChange={setCurrentView}
-          disabledOptions={streetViewDisabled ? { street: true } : undefined}
+          disabledOptions={Object.keys(disabledViewOptions).length ? disabledViewOptions : undefined}
         />
-        {streetViewDisabled ? (
-          <p className="text-xs text-neutral-400">
-            Add a Google Maps API key in Settings to enable Street View.
-          </p>
+        {streetViewDisabled || mapboxViewDisabled ? (
+          <div className="text-center text-xs text-neutral-400 space-y-1">
+            {streetViewDisabled ? (
+              <p>Add a Google Maps API key in Settings to enable Street View.</p>
+            ) : null}
+            {mapboxViewDisabled ? (
+              <p>Add a Mapbox token in Settings to enable Mapbox 3D.</p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
