@@ -33,6 +33,8 @@ export function StreetViewSettings() {
     setUsePointStep,
     streetViewPointsPerStep,
     setStreetViewPointsPerStep,
+    hudPosition,
+    setHudPosition,
   } = useMapSettings();
 
   const handleUpdateMsChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -67,6 +69,27 @@ export function StreetViewSettings() {
         />
         <span className="mt-1 block text-[11px] text-neutral-500">
           Controls how often the panorama advances. Larger = slower.
+        </span>
+      </label>
+
+      <label className="block text-sm text-neutral-300">
+        <span className="text-xs text-neutral-400">HUD position (fullscreen)</span>
+        <select
+          value={hudPosition}
+          onChange={(event) =>
+            setHudPosition(
+              event.target.value as "top-left" | "top-right" | "bottom-left" | "bottom-right",
+            )
+          }
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        >
+          <option value="top-left">Top-left</option>
+          <option value="top-right">Top-right</option>
+          <option value="bottom-left">Bottom-left</option>
+          <option value="bottom-right">Bottom-right</option>
+        </select>
+        <span className="mt-1 block text-[11px] text-neutral-500">
+          Choose where the stats HUD appears while in fullscreen.
         </span>
       </label>
 

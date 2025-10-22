@@ -17,6 +17,7 @@ import ViewToggle, { ViewOption } from "./components/ViewToggle";
 import ApiKeyField from "./components/settings/ApiKeyField";
 import StreetViewSettings from "./components/settings/StreetViewSettings";
 import { useApiKeys } from "./hooks/useApiKeys";
+import { useMapSettings } from "./hooks/useMapSettings";
 
 type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
 
@@ -99,6 +100,16 @@ function App() {
   });
 
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const { hudPosition } = useMapSettings();
+
+  const hudPosClasses =
+    hudPosition === "top-left"
+      ? "left-4 top-4"
+      : hudPosition === "top-right"
+        ? "right-4 top-4"
+        : hudPosition === "bottom-left"
+          ? "left-4 bottom-4"
+          : "right-4 bottom-4";
 
   const handleTabChange = useCallback((tab: AppTab) => {
     setActiveTab(tab);
@@ -455,7 +466,7 @@ function App() {
 
             {isFullscreen && (
               <div
-                className="pointer-events-none absolute left-4 top-4 z-50 grid grid-cols-3 gap-2 rounded-xl bg-neutral-900/70 p-3 backdrop-blur"
+                className={`pointer-events-none absolute ${hudPosClasses} z-50 grid grid-cols-3 gap-2 rounded-xl bg-neutral-900/70 p-3 backdrop-blur`}
                 role="status"
                 aria-live="polite"
               >

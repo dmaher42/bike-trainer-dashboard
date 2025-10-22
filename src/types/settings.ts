@@ -1,13 +1,17 @@
+export type HudPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
 export interface MapSettings {
   streetViewUpdateMs: number;
   usePointStep?: boolean;
   streetViewPointsPerStep?: number;
+  hudPosition?: HudPosition;
 }
 
 export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
   streetViewUpdateMs: 2000,
   usePointStep: false,
   streetViewPointsPerStep: 3,
+  hudPosition: "top-left",
 };
 
 export const STREET_VIEW_MIN_UPDATE_MS = 500;

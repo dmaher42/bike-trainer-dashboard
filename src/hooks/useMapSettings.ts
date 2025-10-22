@@ -4,6 +4,7 @@ import {
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_UPDATE_MS,
+  type HudPosition,
 } from "../types/settings";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -14,6 +15,7 @@ const STORAGE_KEYS = {
   updateMs: "streetViewUpdateMs",
   usePointStep: "streetViewUsePointStep",
   pointsPerStep: "streetViewPointsPerStep",
+  hudPosition: "hudPosition",
 } as const;
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -88,6 +90,14 @@ export const useMapSettings = () => {
     );
   });
 
+  const [hudPosition, setHudPositionState] = useState<HudPosition>(() => {
+    const storage = getStorage();
+    const raw = storage?.getItem(STORAGE_KEYS.hudPosition) ?? DEFAULT_MAP_SETTINGS.hudPosition;
+    return raw === "top-left" || raw === "top-right" || raw === "bottom-left" || raw === "bottom-right"
+      ? raw
+      : DEFAULT_MAP_SETTINGS.hudPosition;
+  });
+
   useEffect(() => {
     const storage = getStorage();
     if (!storage) {
@@ -131,6 +141,19 @@ export const useMapSettings = () => {
     }
   }, [streetViewPointsPerStep]);
 
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(STORAGE_KEYS.hudPosition, hudPosition);
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [hudPosition]);
+
   const setStreetViewUpdateMs = useCallback((value: number) => {
     setStreetViewUpdateMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewUpdateMs;
@@ -151,6 +174,10 @@ export const useMapSettings = () => {
     });
   }, []);
 
+  const setHudPosition = useCallback((value: HudPosition) => {
+    setHudPositionState(value);
+  }, []);
+
   return {
     streetViewUpdateMs,
     setStreetViewUpdateMs,
@@ -158,6 +185,8 @@ export const useMapSettings = () => {
     setUsePointStep,
     streetViewPointsPerStep,
     setStreetViewPointsPerStep,
+    hudPosition,
+    setHudPosition,
   } as const;
 };
 
