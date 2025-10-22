@@ -7,6 +7,7 @@ import { useWorkout } from "./hooks/useWorkout";
 import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
 import VirtualMap from "./components/VirtualMap";
+import MapboxDisplay from "./components/MapboxDisplay";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
 import WorkoutPanel from "./components/WorkoutPanel";
 import EnvDiagnostics from "./components/EnvDiagnostics";
@@ -479,8 +480,16 @@ function App() {
               />
             )}
             {activeView === "mapbox" && mapboxApiKey && (
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
-                Mapbox view would be implemented here.
+              <div className="relative h-[60vh] min-h-[360px] overflow-hidden rounded-2xl border border-neutral-800">
+                <MapboxDisplay
+                  accessToken={mapboxApiKey}
+                  route={route}
+                  options={{
+                    showBuildings: mapboxSettings.showBuildings,
+                    showTraffic: mapboxSettings.showTraffic,
+                    show3D: mapboxSettings.show3D,
+                  }}
+                />
               </div>
             )}
             {activeView === "mapbox" && !mapboxApiKey && (
