@@ -19,6 +19,7 @@ const STORAGE_KEYS = {
   pointsPerStep: "streetViewPointsPerStep",
   hudPosition: "hudPosition",
   panMs: "streetViewPanMs",
+  lockForwardHeading: "streetViewLockForwardHeading",
 } as const;
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -111,6 +112,12 @@ export const useMapSettings = () => {
     );
   });
 
+  const [lockForwardHeading, setLockForwardHeadingState] = useState<boolean>(() => {
+    const storage = getStorage();
+    const raw = storage?.getItem(STORAGE_KEYS.lockForwardHeading);
+    return raw === "false" ? false : true;
+  });
+
   useEffect(() => {
     const storage = getStorage();
     if (!storage) {
@@ -180,6 +187,19 @@ export const useMapSettings = () => {
     }
   }, [streetViewPanMs]);
 
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(STORAGE_KEYS.lockForwardHeading, String(lockForwardHeading));
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [lockForwardHeading]);
+
   const setStreetViewUpdateMs = useCallback((value: number) => {
     setStreetViewUpdateMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewUpdateMs;
@@ -223,6 +243,8 @@ export const useMapSettings = () => {
     setHudPosition,
     streetViewPanMs,
     setStreetViewPanMs,
+    lockForwardHeading,
+    setLockForwardHeading: setLockForwardHeadingState,
   } as const;
 };
 

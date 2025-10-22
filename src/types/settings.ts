@@ -6,6 +6,7 @@ export interface MapSettings {
   streetViewPointsPerStep?: number;
   hudPosition?: HudPosition;
   streetViewPanMs?: number;
+  lockForwardHeading?: boolean;
 }
 
 export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
@@ -14,6 +15,7 @@ export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
   streetViewPointsPerStep: 3,
   hudPosition: "top-left",
   streetViewPanMs: 0,
+  lockForwardHeading: true,
 };
 
 export const STREET_VIEW_MIN_UPDATE_MS = 500;
