@@ -214,6 +214,54 @@ function App() {
       points: route.pts.length,
     };
   }, [route]);
+
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const enterFullscreen = useCallback(async () => {
+    if (!viewRef.current) {
+      return;
+    }
+
+    try {
+      await viewRef.current.requestFullscreen?.();
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  const exitFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
+      }
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "f") {
+        return;
+      }
+
+      if (isFullscreen) {
+        void exitFullscreen();
+      } else {
+        void enterFullscreen();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [enterFullscreen, exitFullscreen, isFullscreen]);
   
   const {
     workouts,
@@ -357,10 +405,19 @@ function App() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="space-y-4">
+          <div ref={viewRef} className="relative space-y-4">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="text-lg font-medium text-neutral-200">{VIEW_TITLES[activeView]}</h3>
-              <span className="text-sm text-neutral-400">{route.name ?? "Active route"}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-neutral-400">{route.name ?? "Active route"}</span>
+                <button
+                  type="button"
+                  onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+                  className="rounded-xl border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
+                >
+                  {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                </button>
+              </div>
             </div>
 
             {activeView === "virtual" && (
@@ -393,6 +450,21 @@ function App() {
             {activeView === "osm" && (
               <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
                 OpenStreetMap view would be implemented here.
+              </div>
+            )}
+
+            {isFullscreen && (
+              <div
+                className="pointer-events-none absolute left-4 top-4 z-50 grid grid-cols-3 gap-2 rounded-xl bg-neutral-900/70 p-3 backdrop-blur"
+                role="status"
+                aria-live="polite"
+              >
+                <HudStat label="Power" value={metrics.power} unit="W" />
+                <HudStat label="Cadence" value={metrics.cadence} unit="rpm" />
+                <HudStat label="Speed" value={metrics.speed} unit="kph" />
+                <HudStat label="Distance" value={metrics.distance} unit="km" />
+                <HudStat label="Heart" value={metrics.hr} unit="bpm" />
+                <HudStat label="Elapsed" value={elapsed} />
               </div>
             )}
           </div>
@@ -692,3 +764,30 @@ function App() {
 }
 
 export default App;
+
+function HudStat({
+  label,
+  value,
+  unit = "",
+}: {
+  label: string;
+  value?: number | string;
+  unit?: string;
+}) {
+  const isMissing = value == null || (typeof value === "number" && Number.isNaN(value));
+  const display =
+    isMissing
+      ? "—"
+      : typeof value === "number"
+        ? value.toFixed?.(unit ? 0 : 0) ?? String(value)
+        : String(value);
+
+  return (
+    <div className="pointer-events-none min-w-[90px] rounded-lg border border-neutral-800 bg-neutral-950/60 px-2 py-1.5 text-xs text-neutral-200">
+      <div className="text-[10px] uppercase tracking-wide text-neutral-400">{label}</div>
+      <div className="font-semibold">
+        {display} {unit}
+      </div>
+    </div>
+  );
+}
