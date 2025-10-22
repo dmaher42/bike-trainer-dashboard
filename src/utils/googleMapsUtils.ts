@@ -34,8 +34,33 @@ export class GoogleMapsManager {
     if (this.mapsLoaded) return;
 
     return new Promise((resolve, reject) => {
+      const existingAuthFailure = window.gm_authFailure;
+
+      const cleanup = () => {
+        if (window.gm_authFailure === authFailureHandler) {
+          if (existingAuthFailure) {
+            window.gm_authFailure = existingAuthFailure;
+          } else {
+            delete window.gm_authFailure;
+          }
+        }
+      };
+
+      const handleError = (message: string) => {
+        cleanup();
+        reject(new Error(message));
+      };
+
+      const authFailureHandler = () => {
+        existingAuthFailure?.();
+        handleError(
+          'Google Maps authentication failed. Please verify your API key restrictions for this site.',
+        );
+      };
+
       // Check if already loaded
       if (window.google && window.google.maps) {
+        cleanup();
         this.mapsLoaded = true;
         resolve();
         return;
@@ -63,12 +88,15 @@ export class GoogleMapsManager {
       // Set up callback
       window.initGoogleMaps = () => {
         this.mapsLoaded = true;
+        cleanup();
         resolve();
       };
 
+      window.gm_authFailure = authFailureHandler;
+
       // Handle errors
       script.onerror = () => {
-        reject(new Error('Failed to load Google Maps API'));
+        handleError('Failed to load Google Maps API');
       };
 
       // Add to document
@@ -136,5 +164,6 @@ declare global {
   interface Window {
     initGoogleMaps: () => void;
     google: any;
+    gm_authFailure?: () => void;
   }
 }
