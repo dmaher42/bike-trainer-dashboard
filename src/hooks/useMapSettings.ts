@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_MAP_SETTINGS,
+  STREET_VIEW_MAX_PAN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
+  STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_UPDATE_MS,
   type HudPosition,
@@ -16,6 +18,7 @@ const STORAGE_KEYS = {
   usePointStep: "streetViewUsePointStep",
   pointsPerStep: "streetViewPointsPerStep",
   hudPosition: "hudPosition",
+  panMs: "streetViewPanMs",
 } as const;
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -98,6 +101,16 @@ export const useMapSettings = () => {
       : DEFAULT_MAP_SETTINGS.hudPosition;
   });
 
+  const [streetViewPanMs, setStreetViewPanMsState] = useState<number>(() => {
+    const storage = getStorage();
+    return parseNumber(
+      storage?.getItem(STORAGE_KEYS.panMs) ?? null,
+      DEFAULT_MAP_SETTINGS.streetViewPanMs,
+      STREET_VIEW_MIN_PAN_MS,
+      STREET_VIEW_MAX_PAN_MS,
+    );
+  });
+
   useEffect(() => {
     const storage = getStorage();
     if (!storage) {
@@ -154,6 +167,19 @@ export const useMapSettings = () => {
     }
   }, [hudPosition]);
 
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(STORAGE_KEYS.panMs, String(streetViewPanMs));
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [streetViewPanMs]);
+
   const setStreetViewUpdateMs = useCallback((value: number) => {
     setStreetViewUpdateMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewUpdateMs;
@@ -178,6 +204,14 @@ export const useMapSettings = () => {
     setHudPositionState(value);
   }, []);
 
+  const setStreetViewPanMs = useCallback((value: number) => {
+    setStreetViewPanMsState((prev) => {
+      const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewPanMs;
+      const numeric = Number.isFinite(value) ? value : fallback;
+      return clampNumber(numeric, STREET_VIEW_MIN_PAN_MS, STREET_VIEW_MAX_PAN_MS);
+    });
+  }, []);
+
   return {
     streetViewUpdateMs,
     setStreetViewUpdateMs,
@@ -187,6 +221,8 @@ export const useMapSettings = () => {
     setStreetViewPointsPerStep,
     hudPosition,
     setHudPosition,
+    streetViewPanMs,
+    setStreetViewPanMs,
   } as const;
 };
 

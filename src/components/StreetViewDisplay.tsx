@@ -8,6 +8,7 @@ import React, {
 import type { Route } from "../types";
 import { GoogleMapsManager } from "../utils/googleMapsUtils";
 import { useMapSettings } from "../hooks/useMapSettings";
+import { STREET_VIEW_MAX_PAN_MS, STREET_VIEW_MIN_PAN_MS } from "../types/settings";
 
 const MIN_POINTS_FOR_STREET_VIEW = 2;
 
@@ -38,6 +39,33 @@ const bearing = (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral): nu
   return (heading + 360) % 360;
 };
 
+const normalizeDeg = (deg: number) => {
+  let d = deg % 360;
+  if (d < 0) {
+    d += 360;
+  }
+  return d;
+};
+
+const shortestDeltaDeg = (from: number, to: number) => {
+  const a = normalizeDeg(from);
+  const b = normalizeDeg(to);
+  let d = b - a;
+  if (d > 180) {
+    d -= 360;
+  }
+  if (d < -180) {
+    d += 360;
+  }
+  return d;
+};
+
+const easeInOutQuad = (t: number) => {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+};
+
+const MIN_FRAME_DELTA = 1000 / 30;
+
 export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   route,
   distance,
@@ -59,11 +87,19 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const lastUpdateMsRef = useRef(0);
   const mapsManagerRef = useRef<GoogleMapsManager | null>(null);
   const warnedAboutTotalRef = useRef(false);
+  const rafIdRef = useRef<number | null>(null);
+  const animStartRef = useRef(0);
+  const startHeadingRef = useRef(0);
+  const startPitchRef = useRef(0);
+  const targetHeadingRef = useRef(0);
+  const targetPitchRef = useRef(0);
+  const lastFrameMsRef = useRef(0);
 
   const {
     streetViewUpdateMs,
     usePointStep,
     streetViewPointsPerStep,
+    streetViewPanMs,
   } = useMapSettings();
 
   const routeLatLngs = useMemo(() => {
@@ -260,8 +296,72 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     })();
 
     const heading = headingTarget === position ? 0 : bearing(position, headingTarget);
-    panorama.setPov({ heading, pitch: 0 });
+    const targetPitch = 0;
     panorama.setZoom(1);
+
+    const cancelOngoingAnimation = () => {
+      if (rafIdRef.current != null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+
+    if (
+      !Number.isFinite(streetViewPanMs) ||
+      streetViewPanMs <= STREET_VIEW_MIN_PAN_MS
+    ) {
+      cancelOngoingAnimation();
+      panorama.setPov({ heading, pitch: targetPitch });
+    } else {
+      const currentPov = panorama.getPov ? panorama.getPov() : { heading, pitch: targetPitch };
+
+      cancelOngoingAnimation();
+      animStartRef.current = performance.now();
+      lastFrameMsRef.current = 0;
+      startHeadingRef.current = currentPov.heading ?? heading;
+      startPitchRef.current = currentPov.pitch ?? targetPitch;
+      targetHeadingRef.current = heading;
+      targetPitchRef.current = targetPitch;
+
+      const duration = Math.min(
+        STREET_VIEW_MAX_PAN_MS,
+        Math.max(STREET_VIEW_MIN_PAN_MS, Math.trunc(streetViewPanMs)),
+      );
+
+      const animate = (now: number) => {
+        const panoramaInstance = panoramaRef.current;
+        if (!panoramaInstance) {
+          rafIdRef.current = null;
+          return;
+        }
+
+        if (lastFrameMsRef.current && now - lastFrameMsRef.current < MIN_FRAME_DELTA) {
+          rafIdRef.current = requestAnimationFrame(animate);
+          return;
+        }
+
+        lastFrameMsRef.current = now;
+
+        const elapsed = now - animStartRef.current;
+        const t = duration > 0 ? Math.min(1, elapsed / duration) : 1;
+        const eased = easeInOutQuad(t);
+
+        const deltaHeading = shortestDeltaDeg(startHeadingRef.current, targetHeadingRef.current);
+        const nextHeading = normalizeDeg(startHeadingRef.current + deltaHeading * eased);
+        const nextPitch =
+          startPitchRef.current + (targetPitchRef.current - startPitchRef.current) * eased;
+
+        panoramaInstance.setPov({ heading: nextHeading, pitch: nextPitch });
+
+        if (t < 1) {
+          rafIdRef.current = requestAnimationFrame(animate);
+        } else {
+          rafIdRef.current = null;
+        }
+      };
+
+      rafIdRef.current = requestAnimationFrame(animate);
+    }
 
     const manager = mapsManagerRef.current;
     if (manager?.isLoaded() && lastIndexRef.current !== targetIndex) {
@@ -297,7 +397,17 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     streetViewUpdateMs,
     usePointStep,
     streetViewPointsPerStep,
+    streetViewPanMs,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current != null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, []);
 
   const handleRetry = useCallback(() => {
     if (!apiKey) {

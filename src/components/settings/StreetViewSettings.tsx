@@ -1,7 +1,9 @@
 import { ChangeEvent } from "react";
 import {
   DEFAULT_MAP_SETTINGS,
+  STREET_VIEW_MAX_PAN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
+  STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_UPDATE_MS,
 } from "../../types/settings";
@@ -35,6 +37,8 @@ export function StreetViewSettings() {
     setStreetViewPointsPerStep,
     hudPosition,
     setHudPosition,
+    streetViewPanMs,
+    setStreetViewPanMs,
   } = useMapSettings();
 
   const handleUpdateMsChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -50,6 +54,15 @@ export function StreetViewSettings() {
     const parsed = parseNumberInput(event);
     const next = parsed === null ? DEFAULT_MAP_SETTINGS.streetViewPointsPerStep : clampPoints(parsed);
     setStreetViewPointsPerStep(next);
+  };
+
+  const handlePanDurationChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const parsed = parseNumberInput(event);
+    const next =
+      parsed === null
+        ? DEFAULT_MAP_SETTINGS.streetViewPanMs
+        : clamp(parsed, STREET_VIEW_MIN_PAN_MS, STREET_VIEW_MAX_PAN_MS);
+    setStreetViewPanMs(next);
   };
 
   return (
@@ -121,6 +134,23 @@ export function StreetViewSettings() {
           </label>
         </div>
       </details>
+
+      <label className="block text-sm text-neutral-300">
+        <span className="text-xs text-neutral-400">Pan duration (ms)</span>
+        <input
+          type="number"
+          min={STREET_VIEW_MIN_PAN_MS}
+          max={STREET_VIEW_MAX_PAN_MS}
+          step={50}
+          placeholder={String(DEFAULT_MAP_SETTINGS.streetViewPanMs)}
+          value={streetViewPanMs}
+          onChange={handlePanDurationChange}
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-500 focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        />
+        <span className="mt-1 block text-[11px] text-neutral-500">
+          Ease Street View heading/pitch over this time. 0 = off.
+        </span>
+      </label>
 
       <p className="text-[11px] text-neutral-500">Changes save automatically.</p>
     </section>

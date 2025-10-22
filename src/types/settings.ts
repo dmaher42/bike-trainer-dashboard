@@ -5,6 +5,7 @@ export interface MapSettings {
   usePointStep?: boolean;
   streetViewPointsPerStep?: number;
   hudPosition?: HudPosition;
+  streetViewPanMs?: number;
 }
 
 export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
@@ -12,8 +13,11 @@ export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
   usePointStep: false,
   streetViewPointsPerStep: 3,
   hudPosition: "top-left",
+  streetViewPanMs: 0,
 };
 
 export const STREET_VIEW_MIN_UPDATE_MS = 500;
 export const STREET_VIEW_MAX_UPDATE_MS = 10000;
 export const STREET_VIEW_MIN_POINTS_STEP = 1;
+export const STREET_VIEW_MIN_PAN_MS = 0;
+export const STREET_VIEW_MAX_PAN_MS = 1500;
