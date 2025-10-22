@@ -15,6 +15,7 @@ import RouteLoader from "./components/RouteLoader";
 import FixBluetoothModal from "./components/FixBluetoothModal";
 import ViewToggle, { ViewOption } from "./components/ViewToggle";
 import ApiKeyField from "./components/settings/ApiKeyField";
+import StreetViewSettings from "./components/settings/StreetViewSettings";
 import { useApiKeys } from "./hooks/useApiKeys";
 
 type AppTab = "dashboard" | "workouts" | "analysis" | "routes" | "settings";
@@ -540,6 +541,7 @@ function App() {
             saved={Boolean(mapboxApiKey)}
             data-testid="mapbox-api-field"
           />
+          <StreetViewSettings />
         </div>
       </section>
 
