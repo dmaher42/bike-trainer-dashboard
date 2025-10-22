@@ -433,6 +433,7 @@ export const useBluetooth = (): UseBluetoothResult => {
           window.dispatchEvent(
             new CustomEvent('ftms-data', {
               detail: {
+                source: 'ftms' as const,
                 speed: speedKph,
                 cadence,
                 power,
@@ -578,7 +579,12 @@ export const useBluetooth = (): UseBluetoothResult => {
         const speed = speedFromPower(power);
 
         if (typeof window !== 'undefined') {
-          const detail: { power: number; cadence?: number; speed?: number } = { power };
+          const detail: {
+            source: 'cps';
+            power: number;
+            cadence?: number;
+            speed?: number;
+          } = { source: 'cps', power };
           if (typeof cadence === 'number') {
             detail.cadence = cadence;
           }

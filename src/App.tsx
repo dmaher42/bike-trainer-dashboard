@@ -107,7 +107,7 @@ function App() {
   });
 
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const { hudPosition } = useMapSettings();
+  const { hudPosition, usePowerToDriveSpeed } = useMapSettings();
 
   const hudPosClasses =
     hudPosition === "top-left"
@@ -277,14 +277,9 @@ function App() {
     [errors],
   );
   
-  const {
-    metrics,
-    samples,
-    elapsed,
-    startRide,
-    stopRide,
-    resetRide,
-  } = useMetrics(sim, rideOn);
+  const { metrics, samples, elapsed, startRide, stopRide, resetRide } = useMetrics(sim, rideOn, {
+    usePowerToDriveSpeed,
+  });
   
   const {
     route,

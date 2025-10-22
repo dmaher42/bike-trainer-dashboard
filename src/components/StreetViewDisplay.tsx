@@ -89,6 +89,8 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const lastIndexRef = useRef<number>(-1);
   const lastAppliedIndexRef = useRef<number>(-1);
   const lastUpdateMsRef = useRef(0);
+  const distanceSinceLastSVRef = useRef<number>(0);
+  const lastDistanceKmRef = useRef<number>(0);
   const mapsManagerRef = useRef<GoogleMapsManager | null>(null);
   const warnedAboutTotalRef = useRef(false);
   const rafIdRef = useRef<number | null>(null);
@@ -108,6 +110,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     streetViewPointsPerStep,
     streetViewPanMs,
     lockForwardHeading,
+    streetViewMetersPerStep,
   } = useMapSettings();
 
   const routeLatLngs = useMemo(() => {
@@ -207,8 +210,17 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   }, [usePointStep, streetViewPointsPerStep]);
 
   useEffect(() => {
+    distanceSinceLastSVRef.current = 0;
+  }, [streetViewMetersPerStep, usePointStep]);
+
+  useEffect(() => {
     lastUpdateMsRef.current = 0;
   }, [streetViewUpdateMs]);
+
+  useEffect(() => {
+    distanceSinceLastSVRef.current = 0;
+    lastDistanceKmRef.current = Number.isFinite(distance) ? distance : 0;
+  }, [routeLatLngs]);
 
   useEffect(() => {
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
@@ -321,6 +333,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     const lastAppliedIndex = lastAppliedIndexRef.current;
 
     if (usePointStep) {
+      distanceSinceLastSVRef.current = 0;
       const requiredStep = Math.max(1, streetViewPointsPerStep);
       if (
         lastAppliedIndex !== -1 &&
@@ -329,12 +342,30 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         return;
       }
     } else {
+      const metersPerStep = Math.max(3, Math.min(50, streetViewMetersPerStep ?? 15));
+      const currentDistanceKm = Number.isFinite(distance) ? distance : 0;
+      const previousDistanceKm = lastDistanceKmRef.current ?? 0;
+      let deltaKm = currentDistanceKm - previousDistanceKm;
+      if (deltaKm < 0) {
+        distanceSinceLastSVRef.current = 0;
+        deltaKm = currentDistanceKm;
+      }
+
+      lastDistanceKmRef.current = currentDistanceKm;
+      const deltaMeters = Math.max(0, deltaKm * 1000);
+      distanceSinceLastSVRef.current += deltaMeters;
+
+      if (distanceSinceLastSVRef.current < metersPerStep) {
+        return;
+      }
+
       const now = Date.now();
       const throttleMs = Math.max(500, streetViewUpdateMs);
       if (lastAppliedIndex !== -1 && now - lastUpdateMsRef.current < throttleMs) {
         return;
       }
       lastUpdateMsRef.current = now;
+      distanceSinceLastSVRef.current = 0;
     }
 
     const previousAppliedIndex = lastAppliedIndexRef.current;
@@ -480,12 +511,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     return undefined;
   }, [
     progress.fraction,
+    distance,
     onLocationUpdate,
     routeLatLngs,
     streetViewUpdateMs,
     usePointStep,
     streetViewPointsPerStep,
     streetViewPanMs,
+    streetViewMetersPerStep,
   ]);
 
   useEffect(() => {

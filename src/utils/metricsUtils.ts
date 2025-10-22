@@ -11,12 +11,22 @@ export function formatTime(totalSec: number): string {
     .join(":");
 }
 
-export function speedFromPower(w: number): number {
-  if (!Number.isFinite(w) || w <= 0) {
+export function computeVirtualSpeedKph(powerW: number, grade = 0): number {
+  if (!Number.isFinite(powerW) || powerW <= 0) {
     return 0;
   }
 
-  return Math.max(0, 10 + 0.02 * (w - 150));
+  const base = Math.cbrt(Math.max(0, powerW));
+  const k = 1.7;
+  const gradePenalty = 1 - 0.06 * grade;
+  const modifier = Math.max(0.3, Math.min(1.2, gradePenalty));
+  const v = k * base * modifier;
+
+  return Math.max(0, Math.min(60, v));
+}
+
+export function speedFromPower(w: number): number {
+  return computeVirtualSpeedKph(w);
 }
 
 export function downloadCSV(filename: string, rows: any[]): void {
