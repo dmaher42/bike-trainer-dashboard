@@ -135,7 +135,7 @@ const Metric: React.FC<MetricProps> = ({
         </div>
         <div className="flex flex-col items-start gap-1 text-xs sm:text-sm md:items-end">
           <span
-            className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium ${indicatorClasses}`}
+            className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium whitespace-nowrap ${indicatorClasses}`}
           >
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/60 p-0.5 text-inherit">
               {indicatorIcon}
