@@ -3,6 +3,7 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { resolveActiveView } from "./App";
 
 import App from "./App";
 
@@ -127,6 +128,13 @@ describe("App tab hydration", () => {
     });
   });
 
+  it("disables Mapbox view and guides the user when no token is set", () => {
+    const markup = withWindowHash("#dashboard", () => renderToStaticMarkup(<App />));
+
+    expect(markup).toContain("Add a Mapbox token in Settings to enable Mapbox 3D.");
+    expect(markup).toMatch(/<button[^>]*disabled[^>]*>[\s\S]*Mapbox 3D/i);
+  });
+
   it("prefills API keys from localStorage on the settings screen", () => {
     const getItem = vi.fn((key: string) => {
       if (key === "googleMapsApiKey") {
@@ -156,5 +164,12 @@ describe("App tab hydration", () => {
     expect(getItem).toHaveBeenCalledWith("mapboxApiKey");
     expect(markup).toContain('value="stored-google"');
     expect(markup).toContain('value="stored-mapbox"');
+  });
+
+  it("falls back to an enabled view when the current view is disabled", () => {
+    expect(resolveActiveView("mapbox", { mapbox: true })).toBe("virtual");
+    expect(resolveActiveView("street", { street: true, mapbox: true })).toBe("virtual");
+    expect(resolveActiveView("mapbox", { mapbox: true, street: true })).toBe("virtual");
+    expect(resolveActiveView("osm", {})).toBe("osm");
   });
 });

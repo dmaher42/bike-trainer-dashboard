@@ -34,6 +34,20 @@ const VIEW_TITLES: Record<ViewOption, string> = {
   osm: "OpenStreetMap",
 };
 
+const VIEW_ORDER: ViewOption[] = ["virtual", "street", "mapbox", "osm"];
+
+export const resolveActiveView = (
+  currentView: ViewOption,
+  disabledViewOptions: Partial<Record<ViewOption, boolean>>,
+): ViewOption => {
+  if (!disabledViewOptions[currentView]) {
+    return currentView;
+  }
+
+  const fallbackView = VIEW_ORDER.find((view) => !disabledViewOptions[view]);
+  return fallbackView ?? "virtual";
+};
+
 const isAppTab = (value: string): value is AppTab =>
   TAB_CONFIG.some((tab) => tab.id === value);
 
@@ -134,29 +148,32 @@ function App() {
   }, [activeTab]);
 
   const streetViewDisabled = !googleMapsApiKey;
-  const mapboxViewDisabled = !mapboxApiKey;
+  const mapboxDisabled = !mapboxApiKey;
 
-  const disabledViewOptions = useMemo<Partial<Record<ViewOption, boolean>>>(() => {
-    const disabled: Partial<Record<ViewOption, boolean>> = {};
+  const disabledViewOptions = useMemo(() => {
+    const options: Partial<Record<ViewOption, boolean>> = {};
 
     if (streetViewDisabled) {
-      disabled.street = true;
+      options.street = true;
     }
 
-    if (mapboxViewDisabled) {
-      disabled.mapbox = true;
+    if (mapboxDisabled) {
+      options.mapbox = true;
     }
 
-    return disabled;
-  }, [streetViewDisabled, mapboxViewDisabled]);
+    return options;
+  }, [streetViewDisabled, mapboxDisabled]);
+
+  const activeView = useMemo(
+    () => resolveActiveView(currentView, disabledViewOptions),
+    [currentView, disabledViewOptions],
+  );
 
   useEffect(() => {
-    const nextView = getFallbackView(currentView, disabledViewOptions);
-
-    if (nextView !== currentView) {
-      setCurrentView(nextView);
+    if (activeView !== currentView) {
+      setCurrentView(activeView);
     }
-  }, [currentView, disabledViewOptions]);
+  }, [activeView, currentView]);
 
   const {
     environment,
@@ -248,18 +265,20 @@ function App() {
     <div data-testid="screen-dashboard" className="mt-6 space-y-6">
       <div className="flex flex-col items-center gap-2">
         <ViewToggle
-          value={currentView}
+          value={activeView}
           onChange={setCurrentView}
           disabledOptions={Object.keys(disabledViewOptions).length ? disabledViewOptions : undefined}
         />
-        {streetViewDisabled || mapboxViewDisabled ? (
-          <div className="text-center text-xs text-neutral-400 space-y-1">
-            {streetViewDisabled ? (
-              <p>Add a Google Maps API key in Settings to enable Street View.</p>
-            ) : null}
-            {mapboxViewDisabled ? (
-              <p>Add a Mapbox token in Settings to enable Mapbox 3D.</p>
-            ) : null}
+        {streetViewDisabled || mapboxDisabled ? (
+          <div className="text-center text-xs text-neutral-400">
+            <div className="space-y-1">
+              {streetViewDisabled ? (
+                <p>Add a Google Maps API key in Settings to enable Street View.</p>
+              ) : null}
+              {mapboxDisabled ? (
+                <p>Add a Mapbox token in Settings to enable Mapbox 3D.</p>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>
@@ -339,15 +358,15 @@ function App() {
         <div className="lg:col-span-2">
           <div className="space-y-4">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-lg font-medium text-neutral-200">{VIEW_TITLES[currentView]}</h3>
+              <h3 className="text-lg font-medium text-neutral-200">{VIEW_TITLES[activeView]}</h3>
               <span className="text-sm text-neutral-400">{route.name ?? "Active route"}</span>
             </div>
 
-            {currentView === "virtual" && (
+            {activeView === "virtual" && (
               <VirtualMap route={route} metrics={metrics} showRouteInfo />
             )}
 
-            {currentView === "street" && (
+            {activeView === "street" && (
               <StreetViewDisplay
                 route={route}
                 distance={metrics.distance}
@@ -358,19 +377,19 @@ function App() {
               />
             )}
 
-            {currentView === "mapbox" && mapboxApiKey && (
+            {activeView === "mapbox" && mapboxApiKey && (
               <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
                 Mapbox view would be implemented here.
               </div>
             )}
 
-            {currentView === "mapbox" && !mapboxApiKey && (
+            {activeView === "mapbox" && !mapboxApiKey && (
               <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-900/30 p-6 text-center text-neutral-500">
-                Add a Mapbox API key in Settings to preview the Mapbox 3D view.
+                Add a Mapbox token in Settings to enable Mapbox 3D.
               </div>
             )}
 
-            {currentView === "osm" && (
+            {activeView === "osm" && (
               <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
                 OpenStreetMap view would be implemented here.
               </div>
