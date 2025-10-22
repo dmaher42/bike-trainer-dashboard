@@ -58,6 +58,29 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Cancel previous in-progress Pages deployments
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          # ensure jq is available
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+          owner=$(echo "$REPO" | cut -d/ -f1)
+          repo=$(echo "$REPO" | cut -d/ -f2)
+
+          echo "Checking for in-progress Pages deployments in $REPO"
+          deployments_json=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$owner/$repo/pages/deployments")
+
+          echo "$deployments_json" | jq -r '.deployments[]? | select(.status == "in_progress") | .id' | while read -r id; do
+            if [ -n "$id" ]; then
+              echo "Cancelling Pages deployment $id"
+              curl -sS -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$owner/$repo/pages/deployments/$id/cancel" || true
+            fi
+          done
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
