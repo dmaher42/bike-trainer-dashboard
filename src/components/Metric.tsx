@@ -48,58 +48,85 @@ const Metric: React.FC<MetricProps> = ({
 }) => {
   const numericValue = typeof value === "number" && Number.isFinite(value) ? value : null;
   const formattedValue = formatValue(value, precision);
-  const formattedTarget = formatTarget(target, precision);
-  const hasTarget = formattedTarget !== null;
-  const isOnTarget =
-    hasTarget && numericValue !== null ? numericValue >= (target as number) : null;
+  const hasTarget = typeof target === "number" && Number.isFinite(target);
+  const formattedTarget = hasTarget ? formatTarget(target, precision) : null;
 
-  const indicatorClasses = isOnTarget === null
-    ? "bg-slate-300 text-slate-600"
-    : isOnTarget
-      ? "bg-emerald-100 text-emerald-700"
-      : "bg-amber-100 text-amber-700";
+  const containerClasses = hasTarget
+    ? "grid grid-cols-1 gap-3 md:grid-cols-[1fr_10.5rem] md:items-center"
+    : "flex flex-col gap-3";
 
-  const indicatorIcon = isOnTarget === null
-    ? (
-        <svg
-          className="h-3 w-3"
-          viewBox="0 0 8 8"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <circle cx="4" cy="4" r="3" />
-        </svg>
-      )
-    : isOnTarget
+  const renderTargetDetails = () => {
+    if (!hasTarget || formattedTarget === null) {
+      return null;
+    }
+
+    const isOnTarget = numericValue !== null ? numericValue >= (target as number) : null;
+    const indicatorClasses = isOnTarget === null
+      ? "bg-slate-300 text-slate-600"
+      : isOnTarget
+        ? "bg-emerald-100 text-emerald-700"
+        : "bg-amber-100 text-amber-700";
+
+    const indicatorIcon = isOnTarget === null
       ? (
           <svg
             className="h-3 w-3"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            viewBox="0 0 8 8"
+            fill="currentColor"
             aria-hidden="true"
           >
-            <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+            <circle cx="4" cy="4" r="3" />
           </svg>
         )
-      : (
-          <svg
-            className="h-3 w-3"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M4 4 12 12" />
-            <path d="M12 4 4 12" />
-          </svg>
-        );
+      : isOnTarget
+        ? (
+            <svg
+              className="h-3 w-3"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+            </svg>
+          )
+        : (
+            <svg
+              className="h-3 w-3"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 4 12 12" />
+              <path d="M12 4 4 12" />
+            </svg>
+          );
+
+    return (
+      <div className="flex flex-col items-start gap-1 text-xs sm:text-sm md:items-end">
+        <span
+          className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium whitespace-nowrap ${indicatorClasses}`}
+        >
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/60 p-0.5 text-inherit">
+            {indicatorIcon}
+          </span>
+          {isOnTarget === null
+            ? "No target"
+            : isOnTarget
+              ? "On target"
+              : "Below target"}
+        </span>
+        <span className="text-slate-500 whitespace-nowrap">Target: {formattedTarget}</span>
+      </div>
+    );
+  };
 
   return (
     <section
@@ -110,13 +137,7 @@ const Metric: React.FC<MetricProps> = ({
         min-h-[96px]
       "
     >
-      <div
-        className="
-          grid grid-cols-1 gap-3
-          md:grid-cols-[1fr_10.5rem]
-          md:items-center
-        "
-      >
+      <div className={containerClasses}>
         <div className="flex flex-col gap-1 text-left">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             {label}
@@ -133,25 +154,7 @@ const Metric: React.FC<MetricProps> = ({
             ) : null}
           </div>
         </div>
-        <div className="flex flex-col items-start gap-1 text-xs sm:text-sm md:items-end">
-          <span
-            className={`flex items-center gap-1 rounded-full px-2 py-1 font-medium whitespace-nowrap ${indicatorClasses}`}
-          >
-            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/60 p-0.5 text-inherit">
-              {indicatorIcon}
-            </span>
-            {isOnTarget === null
-              ? "No target"
-              : isOnTarget
-                ? "On target"
-                : "Below target"}
-          </span>
-          {hasTarget ? (
-            <span className="text-slate-500 whitespace-nowrap">Target: {formattedTarget}</span>
-          ) : (
-            <span className="text-slate-400">Awaiting goal</span>
-          )}
-        </div>
+        {renderTargetDetails()}
       </div>
     </section>
   );
