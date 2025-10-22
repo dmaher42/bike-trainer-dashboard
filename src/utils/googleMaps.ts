@@ -61,7 +61,7 @@ export class GoogleMapsManager {
       const authFailureHandler = () => {
         existingAuthFailure?.();
         handleError(
-          'Google Maps authentication failed. Please verify your API key restrictions for this site.',
+          `Google Maps authentication failed. Please verify that "${window.location.origin}" is included in your API key restrictions.`,
         );
       };
 
@@ -104,6 +104,7 @@ export class GoogleMapsManager {
         key: this.apiKey,
         libraries: 'geometry',
         callback: 'initGoogleMaps',
+        loading: 'async',
         v: 'weekly',
       });
 
