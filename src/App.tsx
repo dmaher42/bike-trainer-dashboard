@@ -321,67 +321,140 @@ function App() {
     }
   };
 
-  const renderDashboard = () => (
-    <div data-testid="screen-dashboard" className="mt-6 space-y-6">
-      <div className="flex flex-col items-center gap-2">
-        <ViewToggle
-          value={activeView}
-          onChange={setCurrentView}
-          disabledOptions={Object.keys(disabledViewOptions).length ? disabledViewOptions : undefined}
-        />
-        {streetViewDisabled || mapboxDisabled ? (
-          <div className="text-center text-xs text-neutral-400">
-            <div className="space-y-1">
-              {streetViewDisabled ? (
-                <p>Add a Google Maps API key in Settings to enable Street View.</p>
-              ) : null}
-              {mapboxDisabled ? (
-                <p>Add a Mapbox token in Settings to enable Mapbox 3D.</p>
-              ) : null}
+  const renderDashboard = () => {
+    const deviceLabels: Record<"ftms" | "cps" | "hr", string> = {
+      ftms: "FTMS Trainer",
+      cps: "Power & Cadence",
+      hr: "Heart Rate",
+    };
+
+    const formatStatus = (status: string | undefined, connected?: boolean) => {
+      if (connected) {
+        return "Connected";
+      }
+
+      if (!status) {
+        return "Idle";
+      }
+
+      return status.charAt(0).toUpperCase() + status.slice(1);
+    };
+
+    const formatEnvValue = (value: boolean | null) => {
+      if (value == null) {
+        return "Unknown";
+      }
+
+      return value ? "Yes" : "No";
+    };
+
+    return (
+      <div
+        data-testid="screen-dashboard"
+        className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)]"
+      >
+        <section className="order-1 space-y-4 lg:order-2">
+          <div className="flex flex-col items-center gap-2">
+            <ViewToggle
+              value={activeView}
+              onChange={setCurrentView}
+              disabledOptions={Object.keys(disabledViewOptions).length ? disabledViewOptions : undefined}
+            />
+            {(streetViewDisabled || mapboxDisabled) && (
+              <div className="text-center text-xs text-neutral-400">
+                <div className="space-y-1">
+                  {streetViewDisabled && (
+                    <p>Add a Google Maps API key in Settings to enable Street View.</p>
+                  )}
+                  {mapboxDisabled && <p>Add a Mapbox token in Settings to enable Mapbox 3D.</p>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-neutral-800 bg-neutral-900/50 px-3 py-2">
+            <div className="truncate text-sm text-neutral-400">{route.name ?? "Active route"}</div>
+            <div className="flex items-center gap-2">
+              {!rideOn ? (
+                <button
+                  onClick={handleStartRide}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 hover:bg-emerald-500"
+                >
+                  Start
+                </button>
+              ) : (
+                <button
+                  onClick={handleStopRide}
+                  className="rounded-lg bg-amber-600 px-3 py-1.5 hover:bg-amber-500"
+                >
+                  Pause
+                </button>
+              )}
+              <button
+                onClick={handleResetRide}
+                className="rounded-lg bg-neutral-800 px-3 py-1.5 hover:bg-neutral-700"
+              >
+                Reset
+              </button>
+              <button
+                onClick={() => downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)}
+                className="rounded-lg bg-neutral-800 px-3 py-1.5 hover:bg-neutral-700"
+              >
+                Export
+              </button>
+              <button
+                type="button"
+                onClick={isFullscreen ? exitFullscreen : enterFullscreen}
+                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
+              >
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </button>
             </div>
           </div>
-        ) : null}
-      </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-1">
-          <div className="grid grid-cols-2 gap-3 text-center">
-            <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
-            <Metric label="Caden" value={metrics.cadence} unit="rpm" target={targetCadence} />
-            <Metric label="Speed" value={metrics.speed} unit="kph" />
-            <Metric label="Distance" value={metrics.distance} unit="km" />
-            <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
-            <Metric label="Elapsed" value={elapsed} unit="" />
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {!rideOn ? (
-              <button
-                onClick={handleStartRide}
-                className="rounded-xl bg-emerald-600 px-4 py-2 hover:bg-emerald-500"
-              >
-                Start Ride
-              </button>
-            ) : (
-              <button
-                onClick={handleStopRide}
-                className="rounded-xl bg-amber-600 px-4 py-2 hover:bg-amber-500"
-              >
-                Pause
-              </button>
+          <div ref={viewRef} className="relative">
+            <h3 className="sr-only">{VIEW_TITLES[activeView]}</h3>
+            {activeView === "virtual" && <VirtualMap route={route} metrics={metrics} showRouteInfo />}
+            {activeView === "street" && (
+              <StreetViewDisplay
+                route={route}
+                distance={metrics.distance}
+                routeTotal={route.total}
+                isRiding={rideOn}
+                apiKey={googleMapsApiKey}
+                onError={(message) => console.error(message)}
+              />
             )}
-            <button
-              onClick={handleResetRide}
-              className="rounded-xl bg-neutral-800 px-4 py-2 hover:bg-neutral-700"
-            >
-              Reset
-            </button>
-            <button
-              onClick={() => downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)}
-              className="rounded-xl bg-neutral-800 px-4 py-2 hover:bg-neutral-700"
-            >
-              Export CSV
-            </button>
+            {activeView === "mapbox" && mapboxApiKey && (
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
+                Mapbox view would be implemented here.
+              </div>
+            )}
+            {activeView === "mapbox" && !mapboxApiKey && (
+              <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-900/30 p-6 text-center text-neutral-500">
+                Add a Mapbox token in Settings to enable Mapbox 3D.
+              </div>
+            )}
+            {activeView === "osm" && (
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
+                OpenStreetMap view would be implemented here.
+              </div>
+            )}
+
+            {isFullscreen && (
+              <div
+                className={`pointer-events-none absolute ${hudPosClasses} z-50 grid grid-cols-3 gap-2 rounded-xl bg-neutral-900/70 p-3 backdrop-blur`}
+                role="status"
+                aria-live="polite"
+              >
+                <HudStat label="Power" value={metrics.power} unit="W" />
+                <HudStat label="Cadence" value={metrics.cadence} unit="rpm" />
+                <HudStat label="Speed" value={metrics.speed} unit="kph" />
+                <HudStat label="Distance" value={metrics.distance} unit="km" />
+                <HudStat label="Heart" value={metrics.hr} unit="bpm" />
+                <HudStat label="Elapsed" value={elapsed} />
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
@@ -413,107 +486,124 @@ function App() {
               ) : null}
             </dl>
           </div>
-        </div>
 
-        <div className="lg:col-span-2">
-          <div ref={viewRef} className="relative space-y-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-lg font-medium text-neutral-200">{VIEW_TITLES[activeView]}</h3>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-neutral-400">{route.name ?? "Active route"}</span>
-                <button
-                  type="button"
-                  onClick={isFullscreen ? exitFullscreen : enterFullscreen}
-                  className="rounded-xl border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
-                >
-                  {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-                </button>
+          <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+            <h2 className="mb-3 text-lg font-medium">Recent Samples</h2>
+            <div className="overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="text-neutral-400">
+                  <tr>
+                    <th className="p-2 text-left">Time</th>
+                    <th className="p-2 text-right">Power</th>
+                    <th className="p-2 text-right">Cadence</th>
+                    <th className="p-2 text-right">Speed</th>
+                    <th className="p-2 text-right">Distance</th>
+                    <th className="p-2 text-right">HR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {samples.slice(-30).map((r, i) => (
+                    <tr key={i} className="border-t border-neutral-800">
+                      <td className="p-2">{new Date(r.ts).toLocaleTimeString()}</td>
+                      <td className="p-2 text-right">{r.power?.toFixed?.(0)}</td>
+                      <td className="p-2 text-right">{r.cadence?.toFixed?.(0)}</td>
+                      <td className="p-2 text-right">{r.speed?.toFixed?.(1)}</td>
+                      <td className="p-2 text-right">{r.distance?.toFixed?.(3)}</td>
+                      <td className="p-2 text-right">{r.hr ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <aside className="order-2 space-y-6 self-start lg:order-1 lg:sticky lg:top-6">
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <Metric label="Power" value={metrics.power} unit="W" target={targetPower} />
+            <Metric label="Cadence" value={metrics.cadence} unit="rpm" target={targetCadence} />
+            <Metric label="Speed" value={metrics.speed} unit="kph" />
+            <Metric label="Distance" value={metrics.distance} unit="km" />
+            <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
+            <Metric label="Elapsed" value={elapsed} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {!rideOn ? (
+              <button onClick={handleStartRide} className="rounded-xl bg-emerald-600 px-4 py-2 hover:bg-emerald-500">
+                Start
+              </button>
+            ) : (
+              <button onClick={handleStopRide} className="rounded-xl bg-amber-600 px-4 py-2 hover:bg-amber-500">
+                Pause
+              </button>
+            )}
+            <button onClick={handleResetRide} className="rounded-xl bg-neutral-800 px-4 py-2 hover:bg-neutral-700">
+              Reset
+            </button>
+            <button
+              onClick={() => downloadCSV(`ride-${new Date().toISOString()}.csv`, samples)}
+              className="rounded-xl bg-neutral-800 px-4 py-2 hover:bg-neutral-700"
+            >
+              Export
+            </button>
+          </div>
+
+          <details className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4" open>
+            <summary className="cursor-pointer text-sm text-neutral-300">Connections &amp; Environment</summary>
+            <div className="mt-3 space-y-3">
+              <div>
+                <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Device status</h4>
+                <ul className="mt-2 space-y-1 text-sm text-neutral-300">
+                  {(Object.keys(deviceLabels) as Array<"ftms" | "cps" | "hr">).map((key) => {
+                    const device = connectedDevices[key];
+                    const status = statuses[key];
+                    return (
+                      <li
+                        key={key}
+                        className="flex items-center justify-between rounded-xl bg-neutral-900/60 px-3 py-2"
+                      >
+                        <span>{deviceLabels[key]}</span>
+                        <span className="text-neutral-400">
+                          {formatStatus(status, device?.connected)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Environment</h4>
+                <dl className="mt-2 space-y-1 text-sm text-neutral-300">
+                  <div className="flex items-center justify-between">
+                    <dt>Secure context</dt>
+                    <dd className="text-neutral-400">{formatEnvValue(environment.isSecure)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt>Bluetooth allowed</dt>
+                    <dd className="text-neutral-400">{formatEnvValue(environment.policy)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt>Availability</dt>
+                    <dd className="text-neutral-400">{formatEnvValue(environment.availability)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt>Enabled</dt>
+                    <dd className="text-neutral-400">{formatEnvValue(environment.bluetoothEnabled)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt>Ready to use</dt>
+                    <dd className="text-neutral-400">{formatEnvValue(environment.canUse)}</dd>
+                  </div>
+                </dl>
               </div>
             </div>
-
-            {activeView === "virtual" && (
-              <VirtualMap route={route} metrics={metrics} showRouteInfo />
-            )}
-
-            {activeView === "street" && (
-              <StreetViewDisplay
-                route={route}
-                distance={metrics.distance}
-                routeTotal={route.total}
-                isRiding={rideOn}
-                apiKey={googleMapsApiKey}
-                onError={(message) => console.error(message)}
-              />
-            )}
-
-            {activeView === "mapbox" && mapboxApiKey && (
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
-                Mapbox view would be implemented here.
-              </div>
-            )}
-
-            {activeView === "mapbox" && !mapboxApiKey && (
-              <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-900/30 p-6 text-center text-neutral-500">
-                Add a Mapbox token in Settings to enable Mapbox 3D.
-              </div>
-            )}
-
-            {activeView === "osm" && (
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-center text-neutral-400">
-                OpenStreetMap view would be implemented here.
-              </div>
-            )}
-
-            {isFullscreen && (
-              <div
-                className={`pointer-events-none absolute ${hudPosClasses} z-50 grid grid-cols-3 gap-2 rounded-xl bg-neutral-900/70 p-3 backdrop-blur`}
-                role="status"
-                aria-live="polite"
-              >
-                <HudStat label="Power" value={metrics.power} unit="W" />
-                <HudStat label="Cadence" value={metrics.cadence} unit="rpm" />
-                <HudStat label="Speed" value={metrics.speed} unit="kph" />
-                <HudStat label="Distance" value={metrics.distance} unit="km" />
-                <HudStat label="Heart" value={metrics.hr} unit="bpm" />
-                <HudStat label="Elapsed" value={elapsed} />
-              </div>
-            )}
-          </div>
-        </div>
+          </details>
+        </aside>
       </div>
-
-      <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
-        <h2 className="mb-3 text-lg font-medium">Recent Samples</h2>
-        <div className="overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="text-neutral-400">
-              <tr>
-                <th className="p-2 text-left">Time</th>
-                <th className="p-2 text-right">Power</th>
-                <th className="p-2 text-right">Cadence</th>
-                <th className="p-2 text-right">Speed</th>
-                <th className="p-2 text-right">Distance</th>
-                <th className="p-2 text-right">HR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {samples.slice(-30).map((r, i) => (
-                <tr key={i} className="border-t border-neutral-800">
-                  <td className="p-2">{new Date(r.ts).toLocaleTimeString()}</td>
-                  <td className="p-2 text-right">{r.power?.toFixed?.(0)}</td>
-                  <td className="p-2 text-right">{r.cadence?.toFixed?.(0)}</td>
-                  <td className="p-2 text-right">{r.speed?.toFixed?.(1)}</td>
-                  <td className="p-2 text-right">{r.distance?.toFixed?.(3)}</td>
-                  <td className="p-2 text-right">{r.hr ?? ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
-
+    );
+  };
   const renderWorkouts = () => (
     <div data-testid="screen-workouts" className="mt-6">
       <WorkoutPanel
