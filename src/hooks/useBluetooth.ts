@@ -32,7 +32,7 @@ interface CleanupOptions {
   clearError?: boolean;
 }
 
-const SERVICE_UUIDS: Record<DeviceKind, BluetoothServiceUUID> = {
+export const SERVICE_UUIDS: Record<DeviceKind, BluetoothServiceUUID> = {
   ftms: 0x1826,
   cps: 0x1818,
   hr: 0x180d,
@@ -197,8 +197,20 @@ export const useBluetooth = (): UseBluetoothResult => {
     const characteristic = characteristicRefs.current[kind];
     const notificationListener = notificationListeners.current[kind];
 
+    if (kind === 'cps') {
+      const cpsCharacteristic = characteristicRefs.current.cps;
+      const cpsListener = notificationListeners.current.cps;
+      if (cpsCharacteristic && cpsListener) {
+        try {
+          cpsCharacteristic.removeEventListener('characteristicvaluechanged', cpsListener);
+        } catch (error) {
+          console.warn('Failed to remove characteristic listener', error);
+        }
+      }
+    }
+
     if (characteristic) {
-      if (notificationListener) {
+      if (notificationListener && kind !== 'cps') {
         try {
           characteristic.removeEventListener('characteristicvaluechanged', notificationListener);
         } catch (error) {
@@ -230,13 +242,16 @@ export const useBluetooth = (): UseBluetoothResult => {
       }
     }
 
-    delete deviceRefs.current[kind];
-    delete disconnectListeners.current[kind];
-    delete characteristicRefs.current[kind];
-    delete notificationListeners.current[kind];
+    deviceRefs.current[kind] = undefined;
+    disconnectListeners.current[kind] = undefined;
 
     if (kind === 'cps') {
+      notificationListeners.current.cps = undefined;
+      characteristicRefs.current.cps = undefined;
       cpsCrankDataRef.current = null;
+    } else {
+      characteristicRefs.current[kind] = undefined;
+      notificationListeners.current[kind] = undefined;
     }
 
     setConnectedDevices((prev) => {
@@ -464,7 +479,154 @@ export const useBluetooth = (): UseBluetoothResult => {
     updateStatus,
     setEnvironment,
   ]);
-  const connectCPS = useCallback(() => connectDevice('cps'), [connectDevice]);
+  const connectCPS = useCallback(async () => {
+    const nav = typeof navigator === 'undefined' ? undefined : navigator;
+    if (!isNavigatorWithBluetooth(nav)) {
+      setError('cps', 'This environment does not support Web Bluetooth.');
+      updateStatus('cps', 'error');
+      return;
+    }
+
+    startConnection('cps');
+    updateStatus('cps', 'requesting');
+    clearError('cps');
+
+    try {
+      const device = await nav.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUIDS.cps] }],
+        optionalServices: [SERVICE_UUIDS.cps],
+      });
+
+      updateStatus('cps', 'connecting');
+      deviceRefs.current.cps = device;
+
+      const onDisconnected = handleDisconnection('cps');
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      disconnectListeners.current.cps = onDisconnected;
+
+      if (!device.gatt) {
+        throw new Error('Device does not support GATT.');
+      }
+
+      const server = await device.gatt.connect();
+      if (!server.connected) {
+        throw new Error('Failed to establish a GATT connection.');
+      }
+
+      const service = await server.getPrimaryService(SERVICE_UUIDS.cps);
+      const characteristic = await service.getCharacteristic(UUIDS.CYCLING_POWER_MEASUREMENT);
+
+      const handleNotification: EventListener = (event) => {
+        const ch = event.target as BluetoothRemoteGATTCharacteristic | null;
+        const value = ch?.value;
+        if (!value) {
+          return;
+        }
+
+        let offset = 0;
+        const flags = value.getUint16(offset, true);
+        offset += 2;
+        const power = value.getInt16(offset, true);
+        offset += 2;
+
+        if (flags & 0x0001) {
+          offset += 1;
+        }
+
+        if (flags & 0x0004) {
+          offset += 2;
+        }
+
+        if (flags & 0x0010) {
+          offset += 6;
+        }
+
+        let cadence: number | undefined;
+        if (flags & 0x0020) {
+          if (value.byteLength >= offset + 4) {
+            const previous = cpsCrankDataRef.current;
+            const revolutions = value.getUint16(offset, true);
+            offset += 2;
+            const eventTime = value.getUint16(offset, true);
+            offset += 2;
+
+            if (previous) {
+              const revolutionDelta =
+                revolutions >= previous.revolutions
+                  ? revolutions - previous.revolutions
+                  : revolutions + 0x10000 - previous.revolutions;
+              const timeDeltaTicks =
+                eventTime >= previous.eventTime
+                  ? eventTime - previous.eventTime
+                  : eventTime + 0x10000 - previous.eventTime;
+
+              if (timeDeltaTicks > 0 && revolutionDelta >= 0) {
+                const timeSeconds = timeDeltaTicks / 1024;
+                const cadenceRpm = (revolutionDelta / timeSeconds) * 60;
+                if (Number.isFinite(cadenceRpm)) {
+                  cadence = cadenceRpm;
+                }
+              }
+            }
+
+            cpsCrankDataRef.current = { revolutions, eventTime };
+          }
+        } else {
+          cpsCrankDataRef.current = null;
+        }
+
+        const speed = speedFromPower(power);
+
+        if (typeof window !== 'undefined') {
+          const detail: { power: number; cadence?: number; speed?: number } = { power };
+          if (typeof cadence === 'number') {
+            detail.cadence = cadence;
+          }
+          if (typeof speed === 'number') {
+            detail.speed = speed;
+          }
+
+          window.dispatchEvent(new CustomEvent('ftms-data', { detail }));
+        }
+      };
+
+      characteristic.addEventListener('characteristicvaluechanged', handleNotification);
+      notificationListeners.current.cps = handleNotification;
+      characteristicRefs.current.cps = characteristic;
+
+      await characteristic.startNotifications();
+
+      updateStatus('cps', 'connected');
+      setEnvironment((prev) => {
+        const next: EnvironmentInfo = {
+          ...prev,
+          bluetoothAvailable: true,
+          bluetoothEnabled: true,
+          availability: true,
+        };
+        return { ...next, canUse: recalculateCanUse(next) };
+      });
+      setConnectedDevices((prev) => ({ ...prev, cps: createAppDevice(device) }));
+      endConnection('cps', true);
+    } catch (error) {
+      console.error('Failed to connect to CPS device', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to connect to device.';
+      setError('cps', errorMessage);
+      updateStatus('cps', 'error');
+      endConnection('cps', false, errorMessage);
+      cleanupDevice('cps', { resetStatus: false, clearError: false });
+    }
+  }, [
+    clearError,
+    cleanupDevice,
+    endConnection,
+    handleDisconnection,
+    setConnectedDevices,
+    setEnvironment,
+    setError,
+    startConnection,
+    updateStatus,
+  ]);
   const connectHR = useCallback(async () => {
     const nav = typeof navigator === 'undefined' ? undefined : navigator;
     if (!isNavigatorWithBluetooth(nav)) {
