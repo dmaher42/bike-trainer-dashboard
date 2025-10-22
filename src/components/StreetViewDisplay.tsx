@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import type { Route } from "../types";
 import { GoogleMapsManager } from "../utils/googleMapsUtils";
+import { useMapSettings } from "../hooks/useMapSettings";
 
 const MIN_POINTS_FOR_STREET_VIEW = 2;
 
@@ -54,8 +55,16 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const streetViewRef = useRef<HTMLDivElement | null>(null);
   const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
   const lastIndexRef = useRef<number>(-1);
+  const lastAppliedIndexRef = useRef<number>(-1);
+  const lastUpdateMsRef = useRef(0);
   const mapsManagerRef = useRef<GoogleMapsManager | null>(null);
   const warnedAboutTotalRef = useRef(false);
+
+  const {
+    streetViewUpdateMs,
+    usePointStep,
+    streetViewPointsPerStep,
+  } = useMapSettings();
 
   const routeLatLngs = useMemo(() => {
     return route.pts
@@ -139,10 +148,21 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
   useEffect(() => {
     lastIndexRef.current = -1;
+    lastAppliedIndexRef.current = -1;
+    lastUpdateMsRef.current = 0;
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
       setCurrentLocation("");
     }
   }, [routeLatLngs]);
+
+  useEffect(() => {
+    lastUpdateMsRef.current = 0;
+    lastAppliedIndexRef.current = -1;
+  }, [usePointStep, streetViewPointsPerStep]);
+
+  useEffect(() => {
+    lastUpdateMsRef.current = 0;
+  }, [streetViewUpdateMs]);
 
   useEffect(() => {
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
@@ -187,43 +207,65 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   }, [apiKey, isLoading, routeLatLngs]);
 
   useEffect(() => {
-    if (!panoramaRef.current) {
+    const panorama = panoramaRef.current;
+    if (!panorama) {
       return;
     }
 
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
-      panoramaRef.current.setVisible(false);
+      panorama.setVisible(false);
       return;
     }
 
-    panoramaRef.current.setVisible(true);
+    panorama.setVisible(true);
 
     const scaledIndex = progress.fraction * (routeLatLngs.length - 1);
-    const index = Math.max(
+    const targetIndex = Math.max(
       0,
       Math.min(routeLatLngs.length - 1, Math.floor(scaledIndex)),
     );
 
-    const position = routeLatLngs[index];
-    panoramaRef.current.setPosition(position);
+    const lastAppliedIndex = lastAppliedIndexRef.current;
+
+    if (usePointStep) {
+      const requiredStep = Math.max(1, streetViewPointsPerStep);
+      if (
+        lastAppliedIndex !== -1 &&
+        Math.abs(targetIndex - lastAppliedIndex) < requiredStep
+      ) {
+        return;
+      }
+    } else {
+      const now = Date.now();
+      const throttleMs = Math.max(500, streetViewUpdateMs);
+      if (lastAppliedIndex !== -1 && now - lastUpdateMsRef.current < throttleMs) {
+        return;
+      }
+      lastUpdateMsRef.current = now;
+    }
+
+    const position = routeLatLngs[targetIndex];
+    lastAppliedIndexRef.current = targetIndex;
+
+    panorama.setPosition(position);
 
     const headingTarget = (() => {
-      if (index < routeLatLngs.length - 1) {
-        return routeLatLngs[index + 1];
+      if (targetIndex < routeLatLngs.length - 1) {
+        return routeLatLngs[targetIndex + 1];
       }
-      if (index > 0) {
-        return routeLatLngs[index - 1];
+      if (targetIndex > 0) {
+        return routeLatLngs[targetIndex - 1];
       }
       return position;
     })();
 
     const heading = headingTarget === position ? 0 : bearing(position, headingTarget);
-    panoramaRef.current.setPov({ heading, pitch: 0 });
-    panoramaRef.current.setZoom(1);
+    panorama.setPov({ heading, pitch: 0 });
+    panorama.setZoom(1);
 
     const manager = mapsManagerRef.current;
-    if (manager?.isLoaded() && lastIndexRef.current !== index) {
-      lastIndexRef.current = index;
+    if (manager?.isLoaded() && lastIndexRef.current !== targetIndex) {
+      lastIndexRef.current = targetIndex;
       let cancelled = false;
       const latLng = new google.maps.LatLng(position.lat, position.lng);
 
@@ -248,7 +290,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     }
 
     return undefined;
-  }, [progress.fraction, onLocationUpdate, routeLatLngs]);
+  }, [
+    progress.fraction,
+    onLocationUpdate,
+    routeLatLngs,
+    streetViewUpdateMs,
+    usePointStep,
+    streetViewPointsPerStep,
+  ]);
 
   const handleRetry = useCallback(() => {
     if (!apiKey) {
