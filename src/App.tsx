@@ -38,6 +38,12 @@ const VIEW_TITLES: Record<ViewOption, string> = {
 
 const VIEW_ORDER: ViewOption[] = ["virtual", "street", "mapbox", "osm"];
 
+const DEVICE_LABELS: Record<"ftms" | "cps" | "hr", string> = {
+  ftms: "FTMS Trainer",
+  cps: "Power & Cadence",
+  hr: "Heart Rate",
+};
+
 export const resolveActiveView = (
   currentView: ViewOption,
   disabledViewOptions: Partial<Record<ViewOption, boolean>>,
@@ -191,11 +197,84 @@ function App() {
     environment,
     connectedDevices,
     statuses,
+    errors,
     refreshEnvironment,
     connectFTMS,
     connectCPS,
     connectHR,
+    disconnect,
+    connectionState,
   } = useBluetooth();
+
+  const isConnectingMap = useMemo(
+    () => ({
+      ftms: statuses.ftms === "connecting" || statuses.ftms === "requesting",
+      cps: statuses.cps === "connecting" || statuses.cps === "requesting",
+      hr: statuses.hr === "connecting" || statuses.hr === "requesting",
+    }),
+    [statuses.cps, statuses.ftms, statuses.hr],
+  );
+
+  const connectionStatusText = useMemo(() => {
+    const activeKeys = (Object.keys(statuses) as Array<"ftms" | "cps" | "hr">).filter(
+      (key) => statuses[key] === "connecting" || statuses[key] === "requesting",
+    );
+    if (activeKeys.length > 0) {
+      const label = activeKeys.map((key) => DEVICE_LABELS[key]).join(", ");
+      return `Connecting to ${label}...`;
+    }
+
+    const errorEntry = (Object.keys(errors) as Array<"ftms" | "cps" | "hr">).find((key) => {
+      const message = errors[key];
+      return typeof message === "string" && message.length > 0;
+    });
+
+    if (errorEntry) {
+      return `${DEVICE_LABELS[errorEntry]} error: ${errors[errorEntry]}`;
+    }
+
+    const connectedCount = (Object.keys(connectedDevices) as Array<"ftms" | "cps" | "hr">).filter(
+      (key) => connectedDevices[key]?.connected,
+    ).length;
+
+    if (connectedCount > 0) {
+      return `${connectedCount} device${connectedCount === 1 ? "" : "s"} connected`;
+    }
+
+    return undefined;
+  }, [connectedDevices, errors, statuses]);
+
+  const disconnectAll = useCallback(() => {
+    (["ftms", "cps", "hr"] as const).forEach((key) => {
+      disconnect(key);
+    });
+  }, [disconnect]);
+
+  const diagnosticsConnectedDevices = useMemo(
+    () => Object.values(connectedDevices).filter((device): device is BluetoothDevice => Boolean(device)),
+    [connectedDevices],
+  );
+
+  const diagnosticsIsScanning = useMemo(
+    () =>
+      Object.values(statuses).some((status) => status === "connecting" || status === "requesting"),
+    [statuses],
+  );
+
+  const diagnosticsLastScanAt = useMemo(() => {
+    const history = connectionState.connectionHistory;
+    if (!history.length) {
+      return null;
+    }
+
+    const lastAttempt = history[history.length - 1];
+    return new Date(lastAttempt.timestamp);
+  }, [connectionState.connectionHistory]);
+
+  const diagnosticsErrorMessage = useMemo(
+    () => Object.values(errors).find((message) => typeof message === "string" && message.length > 0) ?? null,
+    [errors],
+  );
   
   const {
     metrics,
@@ -322,32 +401,6 @@ function App() {
   };
 
   const renderDashboard = () => {
-    const deviceLabels: Record<"ftms" | "cps" | "hr", string> = {
-      ftms: "FTMS Trainer",
-      cps: "Power & Cadence",
-      hr: "Heart Rate",
-    };
-
-    const formatStatus = (status: string | undefined, connected?: boolean) => {
-      if (connected) {
-        return "Connected";
-      }
-
-      if (!status) {
-        return "Idle";
-      }
-
-      return status.charAt(0).toUpperCase() + status.slice(1);
-    };
-
-    const formatEnvValue = (value: boolean | null) => {
-      if (value == null) {
-        return "Unknown";
-      }
-
-      return value ? "Yes" : "No";
-    };
-
     return (
       <div
         data-testid="screen-dashboard"
@@ -549,57 +602,12 @@ function App() {
             </button>
           </div>
 
-          <details className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4" open>
-            <summary className="cursor-pointer text-sm text-neutral-300">Connections &amp; Environment</summary>
-            <div className="mt-3 space-y-3">
-              <div>
-                <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Device status</h4>
-                <ul className="mt-2 space-y-1 text-sm text-neutral-300">
-                  {(Object.keys(deviceLabels) as Array<"ftms" | "cps" | "hr">).map((key) => {
-                    const device = connectedDevices[key];
-                    const status = statuses[key];
-                    return (
-                      <li
-                        key={key}
-                        className="flex items-center justify-between rounded-xl bg-neutral-900/60 px-3 py-2"
-                      >
-                        <span>{deviceLabels[key]}</span>
-                        <span className="text-neutral-400">
-                          {formatStatus(status, device?.connected)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Environment</h4>
-                <dl className="mt-2 space-y-1 text-sm text-neutral-300">
-                  <div className="flex items-center justify-between">
-                    <dt>Secure context</dt>
-                    <dd className="text-neutral-400">{formatEnvValue(environment.isSecure)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Bluetooth allowed</dt>
-                    <dd className="text-neutral-400">{formatEnvValue(environment.policy)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Availability</dt>
-                    <dd className="text-neutral-400">{formatEnvValue(environment.availability)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Enabled</dt>
-                    <dd className="text-neutral-400">{formatEnvValue(environment.bluetoothEnabled)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Ready to use</dt>
-                    <dd className="text-neutral-400">{formatEnvValue(environment.canUse)}</dd>
-                  </div>
-                </dl>
-              </div>
-            </div>
-          </details>
+          <a
+            href="#settings"
+            className="block text-xs text-neutral-400 underline underline-offset-2 hover:text-neutral-200"
+          >
+            Manage Bluetooth in Settings →
+          </a>
         </aside>
       </div>
     );
@@ -754,6 +762,33 @@ function App() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+        <h2 className="mb-3 text-lg font-medium">Device Connections</h2>
+        <BluetoothConnectPanel
+          env={environment}
+          devices={connectedDevices}
+          status={connectionStatusText}
+          onConnectFTMS={connectFTMS}
+          onConnectCPS={connectCPS}
+          onConnectHR={connectHR}
+          onRefreshEnv={refreshEnvironment}
+          onShowFix={() => setShowFix(true)}
+          onDisconnectDevice={disconnect}
+          onDisconnectAll={disconnectAll}
+          isConnecting={isConnectingMap}
+        />
+      </section>
+
+      <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4">
+        <EnvDiagnostics
+          environment={environment}
+          connectedDevices={diagnosticsConnectedDevices}
+          isScanning={diagnosticsIsScanning}
+          lastScanAt={diagnosticsLastScanAt}
+          errorMessage={diagnosticsErrorMessage}
+        />
+      </section>
+
       <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 text-sm text-neutral-400">
         <p>More settings coming soon.</p>
       </section>
@@ -826,18 +861,6 @@ function App() {
             );
           })}
         </div>
-
-        <BluetoothConnectPanel
-          env={environment}
-          devices={connectedDevices}
-          onConnectFTMS={connectFTMS}
-          onConnectCPS={connectCPS}
-          onConnectHR={connectHR}
-          onRefreshEnv={refreshEnvironment}
-          onShowFix={() => setShowFix(true)}
-        />
-
-        <EnvDiagnostics environment={environment} />
 
         {renderActiveSection()}
 
