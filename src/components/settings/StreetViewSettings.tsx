@@ -39,6 +39,8 @@ export function StreetViewSettings() {
     setHudPosition,
     streetViewPanMs,
     setStreetViewPanMs,
+    lockForwardHeading,
+    setLockForwardHeading,
   } = useMapSettings();
 
   const handleUpdateMsChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -150,6 +152,16 @@ export function StreetViewSettings() {
         <span className="mt-1 block text-[11px] text-neutral-500">
           Ease Street View heading/pitch over this time. 0 = off.
         </span>
+      </label>
+
+      <label className="flex items-center gap-2 text-sm text-neutral-300">
+        <input
+          type="checkbox"
+          checked={lockForwardHeading}
+          onChange={(event) => setLockForwardHeading(event.target.checked)}
+          className="h-4 w-4"
+        />
+        <span>Lock forward heading (prevent POV drift)</span>
       </label>
 
       <p className="text-[11px] text-neutral-500">Changes save automatically.</p>
