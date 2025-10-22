@@ -87,7 +87,9 @@ describe("useMapSettings", () => {
     const state = renderHook();
 
     expect(state.streetViewUpdateMs).toBe(2000);
+    expect(state.streetViewPanMs).toBe(0);
     expect(getItem).toHaveBeenCalledWith("streetViewUpdateMs");
+    expect(getItem).toHaveBeenCalledWith("streetViewPanMs");
   });
 
   it("clamps update interval between 500 and 10000", () => {
@@ -97,6 +99,9 @@ describe("useMapSettings", () => {
       }
       if (key === "streetViewPointsPerStep") {
         return "0"; // Should clamp to at least 1.
+      }
+      if (key === "streetViewPanMs") {
+        return "2000"; // Should clamp to max 1500.
       }
       return null;
     });
@@ -109,6 +114,7 @@ describe("useMapSettings", () => {
 
     expect(state.streetViewUpdateMs).toBe(500);
     expect(state.streetViewPointsPerStep).toBe(1);
+    expect(state.streetViewPanMs).toBe(1500);
 
     state.setStreetViewUpdateMs(12000);
     flushEffects();
@@ -123,6 +129,13 @@ describe("useMapSettings", () => {
 
     expect(state.streetViewPointsPerStep).toBe(1);
     expect(setItem).toHaveBeenCalledWith("streetViewPointsPerStep", "1");
+
+    state.setStreetViewPanMs(2000);
+    flushEffects();
+    state = renderHook();
+
+    expect(state.streetViewPanMs).toBe(1500);
+    expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "1500");
   });
 
   it("persists changes to storage and rehydrates values", () => {
@@ -142,12 +155,14 @@ describe("useMapSettings", () => {
     state.setStreetViewUpdateMs(2600);
     state.setUsePointStep(true);
     state.setStreetViewPointsPerStep(5);
+    state.setStreetViewPanMs(800);
     flushEffects();
     state = renderHook();
 
     expect(setItem).toHaveBeenCalledWith("streetViewUpdateMs", "2600");
     expect(setItem).toHaveBeenCalledWith("streetViewPointsPerStep", "5");
     expect(setItem).toHaveBeenCalledWith("streetViewUsePointStep", "1");
+    expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "800");
     expect(removeItem).toHaveBeenCalledWith("streetViewUsePointStep");
 
     // Re-render to simulate fresh hook usage with stored values.
@@ -159,6 +174,7 @@ describe("useMapSettings", () => {
     expect(state.streetViewUpdateMs).toBe(2600);
     expect(state.usePointStep).toBe(true);
     expect(state.streetViewPointsPerStep).toBe(5);
+    expect(state.streetViewPanMs).toBe(800);
   });
 
   afterEach(() => {
