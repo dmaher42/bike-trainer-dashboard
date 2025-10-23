@@ -53,8 +53,13 @@ export class GoogleMapsManager {
 
       const authFailureHandler = () => {
         existingAuthFailure?.();
+
+        const origin = window.location.origin;
+        const pathPrefix = window.location.pathname.replace(/[^/]*$/, '');
+        const refererSuggestion = `${origin}${pathPrefix}*`;
+
         handleError(
-          `Google Maps authentication failed. Please verify that "${window.location.origin}" is included in your API key restrictions.`,
+          `Google Maps authentication failed. Please verify that "${origin}" or "${refererSuggestion}" is included in your API key restrictions.`,
         );
       };
 
