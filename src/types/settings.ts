@@ -11,6 +11,7 @@ export interface MapSettings {
   usePowerToDriveSpeed?: boolean;
   streetViewMetersPerStep?: number;
   headingMode?: HeadingMode;
+  reverseRoute?: boolean;
 }
 
 export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
@@ -23,6 +24,7 @@ export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
   usePowerToDriveSpeed: true,
   streetViewMetersPerStep: 15,
   headingMode: "forward",
+  reverseRoute: false,
 };
 
 export const STREET_VIEW_MIN_UPDATE_MS = 500;

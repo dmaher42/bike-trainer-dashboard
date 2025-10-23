@@ -24,6 +24,7 @@ const STORAGE_KEYS = {
   usePowerToDriveSpeed: "usePowerToDriveSpeed",
   streetViewMetersPerStep: "streetViewMetersPerStep",
   headingMode: "streetViewHeadingMode",
+  reverseRoute: "streetViewReverseRoute",
 } as const;
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -144,6 +145,11 @@ export const useMapSettings = () => {
     const storage = getStorage();
     const raw = storage?.getItem(STORAGE_KEYS.headingMode);
     return raw === "fixed" ? "fixed" : "forward";
+  });
+
+  const [reverseRoute, setReverseRouteState] = useState<boolean>(() => {
+    const storage = getStorage();
+    return storage?.getItem(STORAGE_KEYS.reverseRoute) === "true";
   });
 
   useEffect(() => {
@@ -273,6 +279,19 @@ export const useMapSettings = () => {
     }
   }, [headingMode]);
 
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(STORAGE_KEYS.reverseRoute, String(reverseRoute));
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [reverseRoute]);
+
   const setStreetViewUpdateMs = useCallback((value: number) => {
     setStreetViewUpdateMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewUpdateMs;
@@ -323,6 +342,10 @@ export const useMapSettings = () => {
     setHeadingModeState(value === "fixed" ? "fixed" : "forward");
   }, []);
 
+  const setReverseRoute = useCallback((value: boolean) => {
+    setReverseRouteState(Boolean(value));
+  }, []);
+
   return {
     streetViewUpdateMs,
     setStreetViewUpdateMs,
@@ -342,6 +365,8 @@ export const useMapSettings = () => {
     setStreetViewMetersPerStep,
     headingMode,
     setHeadingMode,
+    reverseRoute,
+    setReverseRoute,
   } as const;
 };
 
