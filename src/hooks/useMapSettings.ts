@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_MAP_SETTINGS,
   STREET_VIEW_MAX_PAN_MS,
+  STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_POINTS_STEP,
+  STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
   type HeadingMode,
   type HudPosition,
@@ -20,6 +22,7 @@ const STORAGE_KEYS = {
   pointsPerStep: "streetViewPointsPerStep",
   hudPosition: "hudPosition",
   panMs: "streetViewPanMs",
+  minStepMs: "streetViewMinStepMs",
   lockForwardHeading: "streetViewLockForwardHeading",
   usePowerToDriveSpeed: "usePowerToDriveSpeed",
   streetViewMetersPerStep: "streetViewMetersPerStep",
@@ -114,6 +117,16 @@ export const useMapSettings = () => {
       DEFAULT_MAP_SETTINGS.streetViewPanMs,
       STREET_VIEW_MIN_PAN_MS,
       STREET_VIEW_MAX_PAN_MS,
+    );
+  });
+
+  const [streetViewMinStepMs, setStreetViewMinStepMsState] = useState<number>(() => {
+    const storage = getStorage();
+    return parseNumber(
+      storage?.getItem(STORAGE_KEYS.minStepMs) ?? null,
+      DEFAULT_MAP_SETTINGS.streetViewMinStepMs,
+      STREET_VIEW_MIN_STEP_COOLDOWN_MS,
+      STREET_VIEW_MAX_STEP_COOLDOWN_MS,
     );
   });
 
@@ -228,6 +241,19 @@ export const useMapSettings = () => {
     }
 
     try {
+      storage.setItem(STORAGE_KEYS.minStepMs, String(streetViewMinStepMs));
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [streetViewMinStepMs]);
+
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
       storage.setItem(STORAGE_KEYS.lockForwardHeading, String(lockForwardHeading));
     } catch {
       // Ignore persistence errors silently.
@@ -324,6 +350,19 @@ export const useMapSettings = () => {
     });
   }, []);
 
+  const setStreetViewMinStepMs = useCallback((value: number) => {
+    setStreetViewMinStepMsState((prev) => {
+      const fallback =
+        typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewMinStepMs;
+      const numeric = Number.isFinite(value) ? value : fallback;
+      return clampNumber(
+        numeric,
+        STREET_VIEW_MIN_STEP_COOLDOWN_MS,
+        STREET_VIEW_MAX_STEP_COOLDOWN_MS,
+      );
+    });
+  }, []);
+
   const setUsePowerToDriveSpeed = useCallback((value: boolean) => {
     setUsePowerToDriveSpeedState(Boolean(value));
   }, []);
@@ -357,6 +396,8 @@ export const useMapSettings = () => {
     setHudPosition,
     streetViewPanMs,
     setStreetViewPanMs,
+    streetViewMinStepMs,
+    setStreetViewMinStepMs,
     lockForwardHeading,
     setLockForwardHeading: setLockForwardHeadingState,
     usePowerToDriveSpeed,
