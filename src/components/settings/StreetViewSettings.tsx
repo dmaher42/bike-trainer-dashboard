@@ -5,6 +5,7 @@ import {
   STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
+  STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
@@ -75,7 +76,9 @@ export function StreetViewSettings() {
     const next =
       parsed === null
         ? DEFAULT_MAP_SETTINGS.streetViewPanMs
-        : clamp(parsed, STREET_VIEW_MIN_PAN_MS, STREET_VIEW_MAX_PAN_MS);
+        : parsed <= STREET_VIEW_MIN_PAN_MS
+        ? STREET_VIEW_MIN_PAN_MS
+        : clamp(parsed, STREET_VIEW_MIN_SMOOTHING_MS, STREET_VIEW_MAX_PAN_MS);
     setStreetViewPanMs(next);
   };
 
@@ -171,7 +174,7 @@ export function StreetViewSettings() {
           className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-500 focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         />
         <span className="mt-1 block text-[11px] text-neutral-500">
-          Ease Street View heading/pitch over this time. 0 = off.
+          Ease Street View heading/pitch over this time. 0 = off, otherwise 200–800ms.
         </span>
       </label>
 
