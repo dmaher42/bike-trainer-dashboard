@@ -47,6 +47,8 @@ export function StreetViewSettings() {
     setStreetViewMetersPerStep,
     headingMode,
     setHeadingMode,
+    reverseRoute,
+    setReverseRoute,
   } = useMapSettings();
 
   const handleUpdateMsChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -200,7 +202,7 @@ export function StreetViewSettings() {
         <span>Lock forward heading (prevent POV drift)</span>
       </label>
 
-      <label className="block text-sm text-neutral-300 mt-3">
+      <label className="mt-3 block text-sm text-neutral-300">
         <span className="text-xs text-neutral-400">Heading mode</span>
         <div className="mt-1 flex gap-4 text-sm">
           <label className="inline-flex items-center gap-2">
@@ -225,6 +227,16 @@ export function StreetViewSettings() {
         <span className="mt-1 block text-[11px] text-neutral-500">
           “Fixed” keeps the camera looking the same direction even on bends.
         </span>
+      </label>
+
+      <label className="mt-2 inline-flex items-center gap-2 text-sm text-neutral-300">
+        <input
+          type="checkbox"
+          checked={reverseRoute}
+          onChange={(event) => setReverseRoute(event.target.checked)}
+          className="h-4 w-4"
+        />
+        <span>Reverse route direction</span>
       </label>
 
       <p className="text-[11px] text-neutral-500">Changes save automatically.</p>

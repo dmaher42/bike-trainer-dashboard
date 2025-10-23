@@ -113,6 +113,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     lockForwardHeading,
     streetViewMetersPerStep,
     headingMode,
+    reverseRoute,
   } = useMapSettings();
 
   const routeLatLngs = useMemo(() => {
@@ -226,7 +227,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
   useEffect(() => {
     fixedHeadingRef.current = null;
-  }, [routeLatLngs, headingMode]);
+  }, [routeLatLngs, headingMode, reverseRoute]);
 
   useEffect(() => {
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
@@ -244,12 +245,18 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     const hasStableHeadings =
       Array.isArray(route.headings) && route.headings.length === routeLatLngs.length;
-    const initialHeading = hasStableHeadings
+    const baseInitialHeading = hasStableHeadings
       ? route.headings![0]
       : routeLatLngs.length > 1
       ? bearing(routeLatLngs[0], routeLatLngs[1])
       : 0;
+    const initialHeading = reverseRoute
+      ? normalizeDeg(360 - baseInitialHeading)
+      : baseInitialHeading;
     smoothedHeadingRef.current = initialHeading;
+    if (headingMode === "fixed") {
+      fixedHeadingRef.current = initialHeading;
+    }
     latestTargetHeadingRef.current = initialHeading;
     latestTargetPitchRef.current = 0;
 
@@ -318,7 +325,15 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         listener?.remove();
       }
     };
-  }, [apiKey, headingMode, isLoading, lockForwardHeading, route.headings, routeLatLngs]);
+  }, [
+    apiKey,
+    headingMode,
+    isLoading,
+    lockForwardHeading,
+    reverseRoute,
+    route.headings,
+    routeLatLngs,
+  ]);
 
   useEffect(() => {
     const panorama = panoramaRef.current;
@@ -326,90 +341,125 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       return;
     }
 
-    if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
+    const totalPoints = routeLatLngs.length;
+    if (totalPoints < MIN_POINTS_FOR_STREET_VIEW) {
       panorama.setVisible(false);
       return;
     }
 
     panorama.setVisible(true);
 
-    const scaledIndex = progress.fraction * (routeLatLngs.length - 1);
-    const targetIndex = Math.max(
-      0,
-      Math.min(routeLatLngs.length - 1, Math.floor(scaledIndex)),
-    );
+    let lastAppliedIndex = lastAppliedIndexRef.current;
+    const previousAppliedIndex = lastAppliedIndex;
+    const currentDistanceKm = Number.isFinite(distance) ? distance : 0;
+    const previousDistanceKm = lastDistanceKmRef.current ?? 0;
 
-    const lastAppliedIndex = lastAppliedIndexRef.current;
+    if (!usePointStep && currentDistanceKm + 1e-6 < previousDistanceKm) {
+      lastAppliedIndexRef.current = -1;
+      lastAppliedIndex = -1;
+      distanceSinceLastSVRef.current = 0;
+      smoothedHeadingRef.current = null;
+      fixedHeadingRef.current = null;
+    }
+
+    lastDistanceKmRef.current = currentDistanceKm;
+
+    const rawIndex = Math.floor(progress.fraction * (totalPoints - 1));
+    const clampedIndex = Math.max(0, Math.min(totalPoints - 1, rawIndex));
+    const monotonicIndex =
+      lastAppliedIndex < 0 ? clampedIndex : Math.max(lastAppliedIndex, clampedIndex);
+
+    let nextIndex = lastAppliedIndex;
+    let shouldAdvance = false;
 
     if (usePointStep) {
       distanceSinceLastSVRef.current = 0;
       const requiredStep = Math.max(1, streetViewPointsPerStep);
-      if (
-        lastAppliedIndex !== -1 &&
-        Math.abs(targetIndex - lastAppliedIndex) < requiredStep
-      ) {
-        return;
+      if (lastAppliedIndex < 0 || monotonicIndex - lastAppliedIndex >= requiredStep) {
+        nextIndex = monotonicIndex;
+        shouldAdvance = nextIndex !== lastAppliedIndex;
       }
     } else {
       const metersPerStep = Math.max(3, Math.min(50, streetViewMetersPerStep ?? 15));
-      const currentDistanceKm = Number.isFinite(distance) ? distance : 0;
-      const previousDistanceKm = lastDistanceKmRef.current ?? 0;
-      let deltaKm = currentDistanceKm - previousDistanceKm;
-      if (deltaKm < 0) {
-        distanceSinceLastSVRef.current = 0;
-        deltaKm = currentDistanceKm;
+      const deltaKm = Math.max(0, currentDistanceKm - previousDistanceKm);
+      const deltaMeters = deltaKm * 1000;
+
+      if (lastAppliedIndex >= 0) {
+        distanceSinceLastSVRef.current += deltaMeters;
       }
 
-      lastDistanceKmRef.current = currentDistanceKm;
-      const deltaMeters = Math.max(0, deltaKm * 1000);
-      distanceSinceLastSVRef.current += deltaMeters;
+      const needsInitialStep = lastAppliedIndex < 0;
+      if (needsInitialStep || distanceSinceLastSVRef.current >= metersPerStep) {
+        if (!needsInitialStep) {
+          distanceSinceLastSVRef.current = Math.max(
+            0,
+            distanceSinceLastSVRef.current - metersPerStep,
+          );
+        } else {
+          distanceSinceLastSVRef.current = 0;
+        }
 
-      if (distanceSinceLastSVRef.current < metersPerStep) {
-        return;
+        if (needsInitialStep || monotonicIndex > lastAppliedIndex) {
+          nextIndex = monotonicIndex;
+          shouldAdvance = nextIndex !== lastAppliedIndex;
+        }
       }
-
-      const now = Date.now();
-      const throttleMs = Math.max(500, streetViewUpdateMs);
-      if (lastAppliedIndex !== -1 && now - lastUpdateMsRef.current < throttleMs) {
-        return;
-      }
-      lastUpdateMsRef.current = now;
-      distanceSinceLastSVRef.current = 0;
     }
 
-    const previousAppliedIndex = lastAppliedIndexRef.current;
-    const position = routeLatLngs[targetIndex];
+    if (!shouldAdvance) {
+      return;
+    }
 
+    const now = Date.now();
+    if (lastAppliedIndex >= 0) {
+      const throttleMs = Math.max(0, streetViewUpdateMs);
+      if (throttleMs > 0 && now - lastUpdateMsRef.current < throttleMs) {
+        return;
+      }
+    }
+    lastUpdateMsRef.current = now;
+
+    const targetIndex = nextIndex;
+    const position = routeLatLngs[targetIndex];
     panorama.setPosition(position);
 
-    const clampedIndex = Math.max(0, Math.min(routeLatLngs.length - 1, targetIndex));
-    const forwardIndex = Math.min(routeLatLngs.length - 1, clampedIndex + LOOKAHEAD);
-    const backwardIndex = Math.max(0, clampedIndex - LOOKAHEAD);
+    const forwardIndex = Math.min(totalPoints - 1, targetIndex + LOOKAHEAD);
+    const backwardIndex = Math.max(0, targetIndex - LOOKAHEAD);
 
     const headingTargetPoint =
-      forwardIndex !== clampedIndex
+      forwardIndex !== targetIndex
         ? routeLatLngs[forwardIndex]
-        : backwardIndex !== clampedIndex
+        : backwardIndex !== targetIndex
         ? routeLatLngs[backwardIndex]
         : position;
 
-    const lastApplied = previousAppliedIndex ?? -1;
-    const smallStep =
-      lastApplied !== -1 &&
-      Math.abs(targetIndex - lastApplied) < MIN_INDEX_STEP_FOR_HEADING;
-
     const hasStableHeadings =
-      Array.isArray(route.headings) && route.headings.length === routeLatLngs.length;
+      Array.isArray(route.headings) && route.headings.length === totalPoints;
 
-    let targetHeadingRaw: number;
+    const smallStep =
+      previousAppliedIndex !== -1 &&
+      Math.abs(targetIndex - previousAppliedIndex) < MIN_INDEX_STEP_FOR_HEADING;
+
+    const applyDirection = (heading: number) => {
+      const normalized = normalizeDeg(heading);
+      return reverseRoute ? normalizeDeg(360 - normalized) : normalized;
+    };
+
+    let baseHeading: number;
+    let shouldApplyDirection = true;
     if (hasStableHeadings) {
-      targetHeadingRaw = route.headings![targetIndex];
+      baseHeading = route.headings![targetIndex];
     } else if (smallStep || headingTargetPoint === position) {
       const currentPov = panorama.getPov ? panorama.getPov() : undefined;
-      targetHeadingRaw = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
+      baseHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
+      shouldApplyDirection = false;
     } else {
-      targetHeadingRaw = bearing(position, headingTargetPoint);
+      baseHeading = bearing(position, headingTargetPoint);
     }
+
+    const targetHeadingRaw = shouldApplyDirection
+      ? applyDirection(baseHeading)
+      : normalizeDeg(baseHeading);
 
     const prev = smoothedHeadingRef.current ?? targetHeadingRaw;
     const deltaShortest = shortestDeltaDeg(prev, targetHeadingRaw);
@@ -479,21 +529,21 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
       const duration = panMs;
 
-      const animate = (now: number) => {
+      const animate = (time: number) => {
         const panoramaInstance = panoramaRef.current;
         if (!panoramaInstance) {
           rafIdRef.current = null;
           return;
         }
 
-        if (lastFrameMsRef.current && now - lastFrameMsRef.current < MIN_FRAME_DELTA) {
+        if (lastFrameMsRef.current && time - lastFrameMsRef.current < MIN_FRAME_DELTA) {
           rafIdRef.current = requestAnimationFrame(animate);
           return;
         }
 
-        lastFrameMsRef.current = now;
+        lastFrameMsRef.current = time;
 
-        const elapsed = now - animStartRef.current;
+        const elapsed = time - animStartRef.current;
         const t = duration > 0 ? Math.min(1, elapsed / duration) : 1;
         const eased = easeInOutQuad(t);
 
@@ -544,17 +594,18 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     return undefined;
   }, [
-    progress.fraction,
     distance,
+    headingMode,
     onLocationUpdate,
+    progress.fraction,
+    reverseRoute,
     route.headings,
     routeLatLngs,
+    streetViewPanMs,
+    streetViewPointsPerStep,
+    streetViewMetersPerStep,
     streetViewUpdateMs,
     usePointStep,
-    streetViewPointsPerStep,
-    streetViewPanMs,
-    streetViewMetersPerStep,
-    headingMode,
   ]);
 
   useEffect(() => {
