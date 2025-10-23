@@ -576,8 +576,20 @@ function App() {
         <aside className="order-2 space-y-6 self-start lg:order-1 lg:sticky lg:top-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-[minmax(0,1fr)] text-center">
             {/* Top row - Priority live metrics */}
-            <Metric label="Power" value={metrics.power} unit="W" priority="high" />
-            <Metric label="Cadence" value={metrics.cadence} unit="rpm" priority="high" />
+            <Metric
+              label="Power"
+              value={metrics.power}
+              unit="W"
+              target={targetPower}
+              priority="high"
+            />
+            <Metric
+              label="Cadence"
+              value={metrics.cadence}
+              unit="rpm"
+              target={targetCadence}
+              priority="high"
+            />
             <Metric label="Heart Rate" value={metrics.hr} unit="bpm" priority="high" />
 
             {/* Bottom row - Secondary metrics */}
