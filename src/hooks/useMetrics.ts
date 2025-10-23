@@ -11,6 +11,8 @@ const INITIAL_METRICS: Metrics = {
   hr: 0,
 };
 
+const FLOAT_COMPARISON_EPSILON = 1e-3;
+
 const FTMS_SPEED_STALE_MS = 2000;
 const POWER_STALE_MS = 2000;
 
@@ -99,12 +101,38 @@ export const useMetrics = (
   }, [options.usePowerToDriveSpeed]);
 
   const applyMetricsUpdate = useCallback((updates: Partial<Metrics>) => {
-    setMetrics((prev) => {
-      const next = { ...prev, ...updates };
-      metricsRef.current = next;
-      distanceRef.current = next.distance;
-      return next;
-    });
+    const current = metricsRef.current;
+    const entries = Object.entries(updates) as Array<[
+      keyof Metrics,
+      Metrics[keyof Metrics],
+    ]>;
+
+    if (
+      entries.length > 0 &&
+      entries.every(([key, value]) => {
+        if (typeof value === "undefined") {
+          return true;
+        }
+
+        const currentValue = current[key];
+        if (typeof value === "number" && typeof currentValue === "number") {
+          return Math.abs(currentValue - value) <= FLOAT_COMPARISON_EPSILON;
+        }
+
+        return currentValue === value;
+      })
+    ) {
+      return;
+    }
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    const next = { ...current, ...updates };
+    metricsRef.current = next;
+    distanceRef.current = next.distance;
+    setMetrics(next);
   }, []);
 
   useEffect(() => {
