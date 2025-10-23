@@ -576,14 +576,14 @@ function App() {
         <aside className="order-2 space-y-6 self-start lg:order-1 lg:sticky lg:top-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-[minmax(0,1fr)] text-center">
             {/* Top row - Priority live metrics */}
-            <Metric label="Power" value={metrics.power} unit="W" />
-            <Metric label="Cadence" value={metrics.cadence} unit="rpm" />
-            <Metric label="Heart Rate" value={metrics.hr} unit="bpm" />
+            <Metric label="Power" value={metrics.power} unit="W" priority="high" />
+            <Metric label="Cadence" value={metrics.cadence} unit="rpm" priority="high" />
+            <Metric label="Heart Rate" value={metrics.hr} unit="bpm" priority="high" />
 
             {/* Bottom row - Secondary metrics */}
-            <Metric label="Speed" value={metrics.speed} unit="kph" />
-            <Metric label="Distance" value={metrics.distance} unit="km" />
-            <Metric label="Elapsed" value={elapsed} unit="" />
+            <Metric label="Speed" value={metrics.speed} unit="kph" priority="medium" />
+            <Metric label="Distance" value={metrics.distance} unit="km" priority="medium" />
+            <Metric label="Elapsed" value={elapsed} unit="" priority="low" />
           </div>
 
           <div className="flex flex-wrap gap-2">

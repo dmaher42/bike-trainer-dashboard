@@ -45,11 +45,37 @@ const Metric: React.FC<MetricProps> = ({
   unit,
   target,
   precision = 0,
+  priority = "medium",
 }) => {
   const numericValue = typeof value === "number" && Number.isFinite(value) ? value : null;
   const formattedValue = formatValue(value, precision);
   const hasTarget = typeof target === "number" && Number.isFinite(target);
   const formattedTarget = hasTarget ? formatTarget(target, precision) : null;
+
+  // Priority style maps – use safe Tailwind tokens (avoid custom 'primary' unless configured)
+  const priorityStyles: Record<NonNullable<MetricProps["priority"]>, string> = {
+    high:
+      "bg-gradient-to-br from-blue-50 via-white to-white border-blue-200/70 shadow-lg hover:shadow-xl " +
+      "dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 dark:border-blue-900/60",
+    medium:
+      "bg-white/90 border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 " +
+      "dark:bg-slate-900 dark:border-slate-800",
+    low:
+      "bg-white/80 border-slate-200/60 shadow-sm hover:shadow-sm " +
+      "dark:bg-slate-900/80 dark:border-slate-800/60",
+  };
+
+  const priorityTextStyles: Record<NonNullable<MetricProps["priority"]>, string> = {
+    high: "text-slate-900 dark:text-slate-100",
+    medium: "text-slate-900 dark:text-slate-100",
+    low: "text-slate-800 dark:text-slate-200",
+  };
+
+  const priorityLabelStyles: Record<NonNullable<MetricProps["priority"]>, string> = {
+    high: "text-blue-700 dark:text-blue-300 font-semibold",
+    medium: "text-slate-500 dark:text-slate-400",
+    low: "text-slate-400 dark:text-slate-500",
+  };
 
   const containerClasses = hasTarget
     ? "grid grid-cols-1 gap-3 md:grid-cols-[1fr_10.5rem] md:items-center"
@@ -131,22 +157,20 @@ const Metric: React.FC<MetricProps> = ({
   return (
     <section
       aria-label={`${label} metric`}
-      className="
-        rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm transition-colors
-        sm:p-5
-        min-h-[96px]
-      "
+      className={`rounded-2xl border p-4 sm:p-5 transition-all duration-300 backdrop-blur-sm min-h-[96px] ${priorityStyles[priority]}`}
     >
       <div className={containerClasses}>
         <div className="flex flex-col gap-1 text-left">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <span
+            className={`text-xs font-semibold uppercase tracking-wide ${priorityLabelStyles[priority]}`}
+          >
             {label}
           </span>
           <div
-            className="
+            className={`
               flex flex-wrap items-baseline gap-1
-              text-3xl sm:text-4xl font-bold text-slate-900 tabular-nums
-            "
+              text-3xl sm:text-4xl font-bold tabular-nums ${priorityTextStyles[priority]}
+            `}
           >
             <span>{formattedValue}</span>
             {unit ? (

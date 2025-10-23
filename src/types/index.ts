@@ -72,4 +72,6 @@ export interface MetricProps {
   value?: number;
   unit?: string;
   target?: number;
+  precision?: number;
+  priority?: "high" | "medium" | "low";
 }
