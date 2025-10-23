@@ -354,6 +354,8 @@ function App() {
     activeWorkout,
     currentInterval,
     intervalTime,
+    targetPower,
+    targetCadence,
     startWorkout,
     stopWorkout,
   } = useWorkout();
