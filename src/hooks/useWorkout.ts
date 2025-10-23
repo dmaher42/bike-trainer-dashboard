@@ -22,8 +22,8 @@ export interface WorkoutState {
 }
 
 export interface UseWorkoutResult extends WorkoutState {
-  start: () => void;
-  stop: () => void;
+  start: (planOverride?: WorkoutPlan | null) => boolean;
+  stop: () => boolean;
   reset: () => void;
   setPlan: (nextPlan: WorkoutPlan | null) => void;
 }
@@ -90,9 +90,14 @@ export const useWorkout = (options: UseWorkoutOptions = {}): UseWorkoutResult =>
   }, []);
 
   const stop = useCallback(() => {
+    if (!isActive) {
+      return false;
+    }
+
     clearTimer();
     setIsActive(false);
-  }, [clearTimer]);
+    return true;
+  }, [clearTimer, isActive]);
 
   const reset = useCallback(() => {
     clearTimer();
@@ -104,19 +109,29 @@ export const useWorkout = (options: UseWorkoutOptions = {}): UseWorkoutResult =>
     setCurrentIntervalIndex(0);
   }, [clearTimer]);
 
-  const start = useCallback(() => {
-    if (isActive || !plan || plan.intervals.length === 0) {
-      return;
-    }
+  const start = useCallback(
+    (planOverride?: WorkoutPlan | null) => {
+      const resolvedPlan = planOverride ?? plan;
+      if (!resolvedPlan || resolvedPlan.intervals.length === 0) {
+        return false;
+      }
 
-    const now = Date.now();
-    startTimestampRef.current = now;
-    intervalStartTimestampRef.current = now;
-    setElapsed(0);
-    setIntervalElapsed(0);
-    setCurrentIntervalIndex(0);
-    setIsActive(true);
-  }, [isActive, plan]);
+      if (isActive) {
+        clearTimer();
+      }
+
+      const now = Date.now();
+      startTimestampRef.current = now;
+      intervalStartTimestampRef.current = now;
+      setPlan(resolvedPlan);
+      setElapsed(0);
+      setIntervalElapsed(0);
+      setCurrentIntervalIndex(0);
+      setIsActive(true);
+      return true;
+    },
+    [clearTimer, isActive, plan],
+  );
 
   useEffect(() => {
     if (!isActive) {

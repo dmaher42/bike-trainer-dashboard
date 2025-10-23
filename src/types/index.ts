@@ -57,14 +57,16 @@ export interface EnvironmentInfo {
   bluetoothEnabled: boolean;
 }
 
+export interface WorkoutInterval {
+  duration: number;
+  targetPower: number;
+  cadence?: number;
+}
+
 export interface WorkoutPlan {
   id: string;
   name: string;
-  intervals: {
-    duration: number;
-    power: number;
-    cadence?: number;
-  }[];
+  intervals: WorkoutInterval[];
 }
 
 export interface MetricProps {
