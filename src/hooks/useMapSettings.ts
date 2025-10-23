@@ -5,6 +5,7 @@ import {
   STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
+  STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
@@ -66,6 +67,22 @@ const parsePoints = (value: string | null, fallback: number): number => {
   return Math.max(STREET_VIEW_MIN_POINTS_STEP, Math.trunc(numeric));
 };
 
+const normalizePanDuration = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return STREET_VIEW_MIN_PAN_MS;
+  }
+
+  if (value <= STREET_VIEW_MIN_PAN_MS) {
+    return STREET_VIEW_MIN_PAN_MS;
+  }
+
+  const truncated = Math.trunc(value);
+  return Math.min(
+    STREET_VIEW_MAX_PAN_MS,
+    Math.max(STREET_VIEW_MIN_SMOOTHING_MS, truncated),
+  );
+};
+
 const getStorage = (): NullableStorage => {
   if (typeof window === "undefined") {
     return null;
@@ -112,12 +129,13 @@ export const useMapSettings = () => {
 
   const [streetViewPanMs, setStreetViewPanMsState] = useState<number>(() => {
     const storage = getStorage();
-    return parseNumber(
+    const parsed = parseNumber(
       storage?.getItem(STORAGE_KEYS.panMs) ?? null,
       DEFAULT_MAP_SETTINGS.streetViewPanMs,
       STREET_VIEW_MIN_PAN_MS,
       STREET_VIEW_MAX_PAN_MS,
     );
+    return normalizePanDuration(parsed);
   });
 
   const [streetViewMinStepMs, setStreetViewMinStepMsState] = useState<number>(() => {
@@ -344,9 +362,8 @@ export const useMapSettings = () => {
 
   const setStreetViewPanMs = useCallback((value: number) => {
     setStreetViewPanMsState((prev) => {
-      const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewPanMs;
-      const numeric = Number.isFinite(value) ? value : fallback;
-      return clampNumber(numeric, STREET_VIEW_MIN_PAN_MS, STREET_VIEW_MAX_PAN_MS);
+      const normalized = normalizePanDuration(value);
+      return normalized === prev ? prev : normalized;
     });
   }, []);
 
