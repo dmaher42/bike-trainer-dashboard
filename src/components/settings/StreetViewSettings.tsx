@@ -45,6 +45,8 @@ export function StreetViewSettings() {
     setUsePowerToDriveSpeed,
     streetViewMetersPerStep,
     setStreetViewMetersPerStep,
+    headingMode,
+    setHeadingMode,
   } = useMapSettings();
 
   const handleUpdateMsChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -196,6 +198,33 @@ export function StreetViewSettings() {
           className="h-4 w-4"
         />
         <span>Lock forward heading (prevent POV drift)</span>
+      </label>
+
+      <label className="block text-sm text-neutral-300 mt-3">
+        <span className="text-xs text-neutral-400">Heading mode</span>
+        <div className="mt-1 flex gap-4 text-sm">
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="sv-heading-mode"
+              checked={headingMode === "forward"}
+              onChange={() => setHeadingMode("forward")}
+            />
+            <span>Forward (follow route)</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="sv-heading-mode"
+              checked={headingMode === "fixed"}
+              onChange={() => setHeadingMode("fixed")}
+            />
+            <span>Fixed (no turning)</span>
+          </label>
+        </div>
+        <span className="mt-1 block text-[11px] text-neutral-500">
+          “Fixed” keeps the camera looking the same direction even on bends.
+        </span>
       </label>
 
       <p className="text-[11px] text-neutral-500">Changes save automatically.</p>

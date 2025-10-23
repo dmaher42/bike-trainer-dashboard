@@ -1,4 +1,5 @@
 export type HudPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type HeadingMode = "forward" | "fixed";
 
 export interface MapSettings {
   streetViewUpdateMs: number;
@@ -9,6 +10,7 @@ export interface MapSettings {
   lockForwardHeading?: boolean;
   usePowerToDriveSpeed?: boolean;
   streetViewMetersPerStep?: number;
+  headingMode?: HeadingMode;
 }
 
 export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
@@ -20,6 +22,7 @@ export const DEFAULT_MAP_SETTINGS: Required<MapSettings> = {
   lockForwardHeading: true,
   usePowerToDriveSpeed: true,
   streetViewMetersPerStep: 15,
+  headingMode: "forward",
 };
 
 export const STREET_VIEW_MIN_UPDATE_MS = 500;

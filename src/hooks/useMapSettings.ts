@@ -6,6 +6,7 @@ import {
   STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_UPDATE_MS,
+  type HeadingMode,
   type HudPosition,
 } from "../types/settings";
 
@@ -22,6 +23,7 @@ const STORAGE_KEYS = {
   lockForwardHeading: "streetViewLockForwardHeading",
   usePowerToDriveSpeed: "usePowerToDriveSpeed",
   streetViewMetersPerStep: "streetViewMetersPerStep",
+  headingMode: "streetViewHeadingMode",
 } as const;
 
 const clampNumber = (value: number, min: number, max: number): number => {
@@ -138,6 +140,12 @@ export const useMapSettings = () => {
     return Math.max(3, Math.min(50, clamped));
   });
 
+  const [headingMode, setHeadingModeState] = useState<HeadingMode>(() => {
+    const storage = getStorage();
+    const raw = storage?.getItem(STORAGE_KEYS.headingMode);
+    return raw === "fixed" ? "fixed" : "forward";
+  });
+
   useEffect(() => {
     const storage = getStorage();
     if (!storage) {
@@ -252,6 +260,19 @@ export const useMapSettings = () => {
     }
   }, [streetViewMetersPerStep]);
 
+  useEffect(() => {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+
+    try {
+      storage.setItem(STORAGE_KEYS.headingMode, headingMode);
+    } catch {
+      // Ignore persistence errors silently.
+    }
+  }, [headingMode]);
+
   const setStreetViewUpdateMs = useCallback((value: number) => {
     setStreetViewUpdateMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewUpdateMs;
@@ -298,6 +319,10 @@ export const useMapSettings = () => {
     });
   }, []);
 
+  const setHeadingMode = useCallback((value: HeadingMode) => {
+    setHeadingModeState(value === "fixed" ? "fixed" : "forward");
+  }, []);
+
   return {
     streetViewUpdateMs,
     setStreetViewUpdateMs,
@@ -315,6 +340,8 @@ export const useMapSettings = () => {
     setUsePowerToDriveSpeed,
     streetViewMetersPerStep,
     setStreetViewMetersPerStep,
+    headingMode,
+    setHeadingMode,
   } as const;
 };
 
