@@ -64,6 +64,20 @@ const shortestDeltaDeg = (from: number, to: number) => {
   return d;
 };
 
+const closestLinkHeading = (
+  links: google.maps.StreetViewLink[] | null | undefined,
+  desired: number,
+): number | null => {
+  if (!links || links.length === 0) return null;
+  let best: { h: number; d: number } | null = null;
+  for (const l of links) {
+    const h = normalizeDeg(l.heading ?? 0);
+    const d = Math.abs(shortestDeltaDeg(desired, h));
+    if (!best || d < best.d) best = { h, d };
+  }
+  return best ? best.h : null;
+};
+
 const easeInOutQuad = (t: number) => {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 };
@@ -284,6 +298,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     const panoramaInstance = panoramaRef.current;
     const listeners: google.maps.MapsEventListener[] = [];
+    let linksTimeout: ReturnType<typeof setTimeout> | null = null;
 
     if (panoramaInstance) {
       const cancelOngoingAnimation = () => {
@@ -292,6 +307,33 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           rafIdRef.current = null;
         }
       };
+
+      const desiredForward = initialHeading;
+      const pano = panoramaInstance;
+      const immediateLinks = pano.getLinks ? pano.getLinks() : undefined;
+      const best = closestLinkHeading(immediateLinks, desiredForward);
+      if (best != null) {
+        pano.setPov({ heading: best, pitch: 0, zoom: 1 });
+        smoothedHeadingRef.current = best;
+        latestTargetHeadingRef.current = best;
+        latestTargetPitchRef.current = 0;
+      }
+
+      const onLinksReady = () => {
+        const links = pano.getLinks ? pano.getLinks() : undefined;
+        const best2 = closestLinkHeading(links, desiredForward);
+        if (best2 != null) {
+          cancelOngoingAnimation();
+          pano.setPov({ heading: best2, pitch: 0, zoom: 1 });
+          smoothedHeadingRef.current = best2;
+          latestTargetHeadingRef.current = best2;
+          latestTargetPitchRef.current = 0;
+        }
+      };
+
+      const linksListener = pano.addListener("links_changed", onLinksReady);
+      listeners.push(linksListener);
+      linksTimeout = setTimeout(onLinksReady, 0);
 
       const reassert = () => {
         if (!lockForwardHeading) {
@@ -320,6 +362,9 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     }
 
     return () => {
+      if (linksTimeout != null) {
+        clearTimeout(linksTimeout);
+      }
       while (listeners.length) {
         const listener = listeners.pop();
         listener?.remove();
