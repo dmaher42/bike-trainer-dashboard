@@ -12,6 +12,7 @@ const INITIAL_METRICS: Metrics = {
 };
 
 const FTMS_SPEED_STALE_MS = 2000;
+const POWER_STALE_MS = 2000;
 
 const formatElapsed = (totalSeconds: number) => {
   const minutes = Math.floor(totalSeconds / 60);
@@ -88,6 +89,10 @@ export const useMetrics = (
   });
   const usePowerFallbackRef = useRef<boolean>(options.usePowerToDriveSpeed ?? true);
   const lastFtmsSpeedAtRef = useRef<number | null>(null);
+  const lastPowerAtRef = useRef<{ ftms: number | null; cps: number | null }>({
+    ftms: null,
+    cps: null,
+  });
 
   useEffect(() => {
     usePowerFallbackRef.current = options.usePowerToDriveSpeed ?? true;
@@ -124,13 +129,23 @@ export const useMetrics = (
       nextSpeed = null;
     }
 
-    if ((nextSpeed == null || !Number.isFinite(nextSpeed)) && fallbackEnabled) {
-      const powerSource = Number.isFinite(sensors.cpsPower ?? NaN)
+    const ftmsPowerFresh =
+      lastPowerAtRef.current.ftms != null && now - lastPowerAtRef.current.ftms <= POWER_STALE_MS;
+    const cpsPowerFresh =
+      lastPowerAtRef.current.cps != null && now - lastPowerAtRef.current.cps <= POWER_STALE_MS;
+
+    const ftmsPower =
+      ftmsPowerFresh && Number.isFinite(sensors.ftmsPower ?? NaN)
+        ? (sensors.ftmsPower as number)
+        : null;
+    const cpsPower =
+      cpsPowerFresh && Number.isFinite(sensors.cpsPower ?? NaN)
         ? (sensors.cpsPower as number)
-        : Number.isFinite(sensors.ftmsPower ?? NaN)
-          ? (sensors.ftmsPower as number)
-          : previous.power;
-      nextSpeed = computeVirtualSpeedKph(powerSource ?? 0);
+        : null;
+
+    if ((nextSpeed == null || !Number.isFinite(nextSpeed)) && fallbackEnabled) {
+      const powerSource = cpsPower ?? ftmsPower ?? 0;
+      nextSpeed = computeVirtualSpeedKph(powerSource);
     }
 
     const safeSpeed = Math.max(0, Math.min(60, Number.isFinite(nextSpeed ?? NaN) ? (nextSpeed as number) : 0));
@@ -141,11 +156,7 @@ export const useMetrics = (
     const nextDistance = baseDistance + safeSpeed / 3600;
     distanceRef.current = nextDistance;
 
-    const powerValue = Number.isFinite(sensors.ftmsPower ?? NaN)
-      ? (sensors.ftmsPower as number)
-      : Number.isFinite(sensors.cpsPower ?? NaN)
-        ? (sensors.cpsPower as number)
-        : previous.power;
+    const powerValue = (ftmsPower ?? cpsPower) ?? 0;
 
     const cadenceValue = Number.isFinite(sensors.cadence ?? NaN)
       ? (sensors.cadence as number)
@@ -232,8 +243,10 @@ export const useMetrics = (
       if (typeof detail.power === "number") {
         if (source === "ftms") {
           sensors.ftmsPower = detail.power;
+          lastPowerAtRef.current.ftms = Date.now();
         } else if (source === "cps") {
           sensors.cpsPower = detail.power;
+          lastPowerAtRef.current.cps = Date.now();
         }
         updates.power = detail.power;
       }
@@ -306,6 +319,7 @@ export const useMetrics = (
       hr: null,
     };
     lastFtmsSpeedAtRef.current = null;
+    lastPowerAtRef.current = { ftms: null, cps: null };
     setMetrics(INITIAL_METRICS);
     setSamples([]);
     return true;
