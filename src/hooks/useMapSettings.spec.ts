@@ -88,8 +88,10 @@ describe("useMapSettings", () => {
 
     expect(state.streetViewUpdateMs).toBe(2000);
     expect(state.streetViewPanMs).toBe(0);
+    expect(state.streetViewMinStepMs).toBe(800);
     expect(getItem).toHaveBeenCalledWith("streetViewUpdateMs");
     expect(getItem).toHaveBeenCalledWith("streetViewPanMs");
+    expect(getItem).toHaveBeenCalledWith("streetViewMinStepMs");
   });
 
   it("clamps update interval between 500 and 10000", () => {
@@ -103,6 +105,9 @@ describe("useMapSettings", () => {
       if (key === "streetViewPanMs") {
         return "2000"; // Should clamp to max 1500.
       }
+      if (key === "streetViewMinStepMs") {
+        return "-50";
+      }
       return null;
     });
     const setItem = vi.fn();
@@ -115,6 +120,7 @@ describe("useMapSettings", () => {
     expect(state.streetViewUpdateMs).toBe(500);
     expect(state.streetViewPointsPerStep).toBe(1);
     expect(state.streetViewPanMs).toBe(1500);
+    expect(state.streetViewMinStepMs).toBe(0);
 
     state.setStreetViewUpdateMs(12000);
     flushEffects();
@@ -136,6 +142,13 @@ describe("useMapSettings", () => {
 
     expect(state.streetViewPanMs).toBe(1500);
     expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "1500");
+
+    state.setStreetViewMinStepMs(6000);
+    flushEffects();
+    state = renderHook();
+
+    expect(state.streetViewMinStepMs).toBe(5000);
+    expect(setItem).toHaveBeenCalledWith("streetViewMinStepMs", "5000");
   });
 
   it("persists changes to storage and rehydrates values", () => {
@@ -156,6 +169,7 @@ describe("useMapSettings", () => {
     state.setUsePointStep(true);
     state.setStreetViewPointsPerStep(5);
     state.setStreetViewPanMs(800);
+    state.setStreetViewMinStepMs(1200);
     flushEffects();
     state = renderHook();
 
@@ -163,6 +177,7 @@ describe("useMapSettings", () => {
     expect(setItem).toHaveBeenCalledWith("streetViewPointsPerStep", "5");
     expect(setItem).toHaveBeenCalledWith("streetViewUsePointStep", "1");
     expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "800");
+    expect(setItem).toHaveBeenCalledWith("streetViewMinStepMs", "1200");
     expect(removeItem).toHaveBeenCalledWith("streetViewUsePointStep");
 
     // Re-render to simulate fresh hook usage with stored values.
@@ -175,6 +190,7 @@ describe("useMapSettings", () => {
     expect(state.usePointStep).toBe(true);
     expect(state.streetViewPointsPerStep).toBe(5);
     expect(state.streetViewPanMs).toBe(800);
+    expect(state.streetViewMinStepMs).toBe(1200);
   });
 
   afterEach(() => {

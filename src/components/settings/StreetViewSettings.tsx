@@ -2,9 +2,11 @@ import { ChangeEvent } from "react";
 import {
   DEFAULT_MAP_SETTINGS,
   STREET_VIEW_MAX_PAN_MS,
+  STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_POINTS_STEP,
+  STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
 } from "../../types/settings";
 import { useMapSettings } from "../../hooks/useMapSettings";
@@ -39,6 +41,8 @@ export function StreetViewSettings() {
     setHudPosition,
     streetViewPanMs,
     setStreetViewPanMs,
+    streetViewMinStepMs,
+    setStreetViewMinStepMs,
     lockForwardHeading,
     setLockForwardHeading,
     usePowerToDriveSpeed,
@@ -73,6 +77,15 @@ export function StreetViewSettings() {
         ? DEFAULT_MAP_SETTINGS.streetViewPanMs
         : clamp(parsed, STREET_VIEW_MIN_PAN_MS, STREET_VIEW_MAX_PAN_MS);
     setStreetViewPanMs(next);
+  };
+
+  const handleMinStepDurationChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const parsed = parseNumberInput(event);
+    const next =
+      parsed === null
+        ? DEFAULT_MAP_SETTINGS.streetViewMinStepMs
+        : clamp(parsed, STREET_VIEW_MIN_STEP_COOLDOWN_MS, STREET_VIEW_MAX_STEP_COOLDOWN_MS);
+    setStreetViewMinStepMs(next);
   };
 
   return (
@@ -159,6 +172,23 @@ export function StreetViewSettings() {
         />
         <span className="mt-1 block text-[11px] text-neutral-500">
           Ease Street View heading/pitch over this time. 0 = off.
+        </span>
+      </label>
+
+      <label className="block text-sm text-neutral-300">
+        <span className="text-xs text-neutral-400">Min time between Street View changes (ms)</span>
+        <input
+          type="number"
+          min={STREET_VIEW_MIN_STEP_COOLDOWN_MS}
+          max={STREET_VIEW_MAX_STEP_COOLDOWN_MS}
+          step={50}
+          placeholder={String(DEFAULT_MAP_SETTINGS.streetViewMinStepMs)}
+          value={streetViewMinStepMs}
+          onChange={handleMinStepDurationChange}
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-500 focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        />
+        <span className="mt-1 block text-[11px] text-neutral-500">
+          Cooldown between panorama switches. Prevents rapid oscillation when moving slowly.
         </span>
       </label>
 
