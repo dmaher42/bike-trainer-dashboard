@@ -42,6 +42,7 @@ export interface Route {
     minLon: number;
     maxLon: number;
   };
+  headings?: number[];
 }
 
 export interface EnvironmentInfo {

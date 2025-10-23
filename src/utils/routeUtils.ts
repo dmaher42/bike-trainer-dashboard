@@ -1,4 +1,5 @@
 import type { Route, RoutePoint } from "../types";
+import { computeStableHeadings, type LatLng } from "./routeHeadings";
 
 interface BuildRouteOptions {
   /** Optional name to associate with the generated route. */
@@ -39,12 +40,41 @@ function computeRouteMetrics(
     cum[i] = cum[i - 1] + Math.hypot(dx, dy);
   }
 
+  const headingCandidates: LatLng[] = [];
+  let canComputeHeadings = true;
+  for (const pt of pts) {
+    const lat = typeof pt.lat === "number" ? pt.lat : undefined;
+    const lon =
+      typeof pt.lon === "number"
+        ? pt.lon
+        : typeof pt.lng === "number"
+        ? pt.lng
+        : undefined;
+
+    if (lat == null || lon == null) {
+      canComputeHeadings = false;
+      break;
+    }
+
+    headingCandidates.push({ x: lon, y: lat });
+  }
+
+  const headings =
+    canComputeHeadings && headingCandidates.length > 1
+      ? computeStableHeadings(headingCandidates, {
+          lookahead: 5,
+          medianWindow: 7,
+          maxTurnDeg: 45,
+        })
+      : undefined;
+
   return {
     pts,
     cum,
     total: cum[cum.length - 1],
     name,
     ...(bounds ? { bounds } : {}),
+    ...(headings ? { headings } : {}),
   };
 }
 
