@@ -242,10 +242,13 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       return;
     }
 
-    const initialHeading =
-      routeLatLngs.length > 1
-        ? bearing(routeLatLngs[0], routeLatLngs[1])
-        : 0;
+    const hasStableHeadings =
+      Array.isArray(route.headings) && route.headings.length === routeLatLngs.length;
+    const initialHeading = hasStableHeadings
+      ? route.headings![0]
+      : routeLatLngs.length > 1
+      ? bearing(routeLatLngs[0], routeLatLngs[1])
+      : 0;
     smoothedHeadingRef.current = initialHeading;
     latestTargetHeadingRef.current = initialHeading;
     latestTargetPitchRef.current = 0;
@@ -315,7 +318,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         listener?.remove();
       }
     };
-  }, [apiKey, headingMode, isLoading, lockForwardHeading, routeLatLngs]);
+  }, [apiKey, headingMode, isLoading, lockForwardHeading, route.headings, routeLatLngs]);
 
   useEffect(() => {
     const panorama = panoramaRef.current;
@@ -395,16 +398,21 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       lastApplied !== -1 &&
       Math.abs(targetIndex - lastApplied) < MIN_INDEX_STEP_FOR_HEADING;
 
-    let rawHeading: number;
-    if (smallStep || headingTargetPoint === position) {
+    const hasStableHeadings =
+      Array.isArray(route.headings) && route.headings.length === routeLatLngs.length;
+
+    let targetHeadingRaw: number;
+    if (hasStableHeadings) {
+      targetHeadingRaw = route.headings![targetIndex];
+    } else if (smallStep || headingTargetPoint === position) {
       const currentPov = panorama.getPov ? panorama.getPov() : undefined;
-      rawHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
+      targetHeadingRaw = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
     } else {
-      rawHeading = bearing(position, headingTargetPoint);
+      targetHeadingRaw = bearing(position, headingTargetPoint);
     }
 
-    const prev = smoothedHeadingRef.current ?? rawHeading;
-    const deltaShortest = shortestDeltaDeg(prev, rawHeading);
+    const prev = smoothedHeadingRef.current ?? targetHeadingRaw;
+    const deltaShortest = shortestDeltaDeg(prev, targetHeadingRaw);
     const clampedDelta = Math.max(
       -MAX_TURN_PER_UPDATE,
       Math.min(MAX_TURN_PER_UPDATE, deltaShortest),
@@ -539,6 +547,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     progress.fraction,
     distance,
     onLocationUpdate,
+    route.headings,
     routeLatLngs,
     streetViewUpdateMs,
     usePointStep,
