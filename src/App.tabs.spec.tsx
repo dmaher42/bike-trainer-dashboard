@@ -9,20 +9,19 @@ import App from "./App";
 
 vi.mock("./hooks/useWorkout", () => ({
   useWorkout: () => ({
-    workouts: [
-      {
-        id: "sample",
-        name: "Sample Workout",
-        intervals: [{ duration: 300, targetPower: 0.6 }],
-      },
-    ],
-    activeWorkout: null,
+    isActive: false,
+    elapsed: 0,
+    intervalElapsed: 0,
+    currentIntervalIndex: 0,
     currentInterval: null,
-    intervalTime: 0,
     targetPower: 0,
     targetCadence: 0,
-    startWorkout: vi.fn(),
-    stopWorkout: vi.fn(),
+    totalDuration: 0,
+    progress: 0,
+    start: vi.fn(() => true),
+    stop: vi.fn(() => true),
+    reset: vi.fn(),
+    setPlan: vi.fn(),
   }),
 }));
 

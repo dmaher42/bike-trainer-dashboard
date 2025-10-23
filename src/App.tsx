@@ -4,6 +4,7 @@ import { useBluetooth } from "./hooks/useBluetooth";
 import { useMetrics } from "./hooks/useMetrics";
 import { useRoute } from "./hooks/useRoute";
 import { useWorkout } from "./hooks/useWorkout";
+import { defaultWorkouts } from "./utils/workoutPlans";
 import { downloadCSV } from "./utils/metricsUtils";
 import { Metric } from "./components/Metric";
 import VirtualMap from "./components/VirtualMap";
@@ -349,14 +350,59 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [enterFullscreen, exitFullscreen, isFullscreen]);
   
+  const workouts = useMemo(() => defaultWorkouts, []);
+  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
+
   const {
-    workouts,
-    activeWorkout,
+    isActive: isWorkoutActive,
+    elapsed: workoutElapsed,
+    intervalElapsed: workoutIntervalElapsed,
+    currentIntervalIndex: workoutIntervalIndex,
     currentInterval,
-    intervalTime,
-    startWorkout,
-    stopWorkout,
+    targetPower: workoutTargetPower,
+    targetCadence: workoutTargetCadence,
+    start: startWorkoutSession,
+    reset: resetWorkoutSession,
+    setPlan: setWorkoutPlan,
   } = useWorkout();
+
+  const handleStartWorkoutPlan = useCallback(
+    (planId: string) => {
+      const selectedPlan = workouts.find((plan) => plan.id === planId);
+      if (!selectedPlan) {
+        return;
+      }
+
+      const started = startWorkoutSession(selectedPlan);
+      if (started) {
+        setActiveWorkoutId(planId);
+      } else {
+        resetWorkoutSession();
+        setWorkoutPlan(null);
+        setActiveWorkoutId(null);
+      }
+    },
+    [resetWorkoutSession, setWorkoutPlan, startWorkoutSession, workouts],
+  );
+
+  const workoutTargetMetrics = useMemo(() => {
+    if (!currentInterval) {
+      return undefined;
+    }
+
+    return [
+      {
+        label: "Target Power",
+        value: Math.round(workoutTargetPower),
+        unit: "W",
+      },
+      {
+        label: "Target Cadence",
+        value: workoutTargetCadence,
+        unit: "rpm",
+      },
+    ];
+  }, [currentInterval, workoutTargetCadence, workoutTargetPower]);
 
   // Auto-enable simulator if Bluetooth is not available
   useEffect(() => {
@@ -580,14 +626,14 @@ function App() {
               label="Power"
               value={metrics.power}
               unit="W"
-              target={targetPower}
+              target={workoutTargetPower}
               priority="high"
             />
             <Metric
               label="Cadence"
               value={metrics.cadence}
               unit="rpm"
-              target={targetCadence}
+              target={workoutTargetCadence}
               priority="high"
             />
             <Metric label="Heart Rate" value={metrics.hr} unit="bpm" priority="high" />
@@ -629,15 +675,18 @@ function App() {
       </div>
     );
   };
+  const activeWorkoutDisplayId = isWorkoutActive ? activeWorkoutId : null;
+
   const renderWorkouts = () => (
     <div data-testid="screen-workouts" className="mt-6">
       <WorkoutPanel
         workouts={workouts}
-        activeWorkout={activeWorkout}
-        currentInterval={currentInterval}
-        intervalTime={intervalTime}
-        onStartWorkout={startWorkout}
-        onStopWorkout={stopWorkout}
+        activeWorkoutId={activeWorkoutDisplayId}
+        currentIntervalIndex={workoutIntervalIndex}
+        overallElapsedSeconds={workoutElapsed}
+        intervalElapsedSeconds={workoutIntervalElapsed}
+        targetMetrics={workoutTargetMetrics}
+        onStartWorkout={handleStartWorkoutPlan}
       />
     </div>
   );
