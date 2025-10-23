@@ -103,6 +103,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const smoothedHeadingRef = useRef<number | null>(null);
   const latestTargetHeadingRef = useRef<number>(0);
   const latestTargetPitchRef = useRef<number>(0);
+  const fixedHeadingRef = useRef<number | null>(null);
 
   const {
     streetViewUpdateMs,
@@ -111,6 +112,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     streetViewPanMs,
     lockForwardHeading,
     streetViewMetersPerStep,
+    headingMode,
   } = useMapSettings();
 
   const routeLatLngs = useMemo(() => {
@@ -223,6 +225,10 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   }, [routeLatLngs]);
 
   useEffect(() => {
+    fixedHeadingRef.current = null;
+  }, [routeLatLngs, headingMode]);
+
+  useEffect(() => {
     if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
       return;
     }
@@ -309,7 +315,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         listener?.remove();
       }
     };
-  }, [apiKey, isLoading, lockForwardHeading, routeLatLngs]);
+  }, [apiKey, headingMode, isLoading, lockForwardHeading, routeLatLngs]);
 
   useEffect(() => {
     const panorama = panoramaRef.current;
@@ -409,8 +415,21 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     );
     smoothedHeadingRef.current = targetHeadingStable;
 
+    if (headingMode === "fixed") {
+      if (fixedHeadingRef.current == null) {
+        fixedHeadingRef.current = targetHeadingStable;
+      }
+    } else {
+      fixedHeadingRef.current = null;
+    }
+
+    const effectiveHeading =
+      headingMode === "fixed"
+        ? fixedHeadingRef.current ?? targetHeadingStable
+        : targetHeadingStable;
+
     const targetPitch = 0;
-    latestTargetHeadingRef.current = targetHeadingStable;
+    latestTargetHeadingRef.current = effectiveHeading;
     latestTargetPitchRef.current = targetPitch;
     panorama.setZoom(1);
 
@@ -421,29 +440,36 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       }
     };
 
-    if (
-      !Number.isFinite(streetViewPanMs) ||
-      streetViewPanMs <= STREET_VIEW_MIN_PAN_MS
-    ) {
+    const panMs =
+      headingMode === "fixed"
+        ? 0
+        : Number.isFinite(streetViewPanMs)
+        ? Math.min(
+            STREET_VIEW_MAX_PAN_MS,
+            Math.max(
+              STREET_VIEW_MIN_PAN_MS,
+              Math.trunc(streetViewPanMs ?? STREET_VIEW_MIN_PAN_MS),
+            ),
+          )
+        : 0;
+
+    if (panMs <= STREET_VIEW_MIN_PAN_MS) {
       cancelOngoingAnimation();
-      panorama.setPov({ heading: targetHeadingStable, pitch: targetPitch, zoom: 1 });
+      panorama.setPov({ heading: effectiveHeading, pitch: targetPitch, zoom: 1 });
     } else {
       const currentPov = panorama.getPov
         ? panorama.getPov()
-        : { heading: targetHeadingStable, pitch: targetPitch, zoom: 1 };
+        : { heading: effectiveHeading, pitch: targetPitch, zoom: 1 };
 
       cancelOngoingAnimation();
       animStartRef.current = performance.now();
       lastFrameMsRef.current = 0;
-      startHeadingRef.current = currentPov.heading ?? targetHeadingStable;
+      startHeadingRef.current = currentPov.heading ?? effectiveHeading;
       startPitchRef.current = currentPov.pitch ?? targetPitch;
-      targetHeadingRef.current = targetHeadingStable;
+      targetHeadingRef.current = effectiveHeading;
       targetPitchRef.current = targetPitch;
 
-      const duration = Math.min(
-        STREET_VIEW_MAX_PAN_MS,
-        Math.max(STREET_VIEW_MIN_PAN_MS, Math.trunc(streetViewPanMs)),
-      );
+      const duration = panMs;
 
       const animate = (now: number) => {
         const panoramaInstance = panoramaRef.current;
@@ -519,6 +545,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     streetViewPointsPerStep,
     streetViewPanMs,
     streetViewMetersPerStep,
+    headingMode,
   ]);
 
   useEffect(() => {
