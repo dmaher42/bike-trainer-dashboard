@@ -52,29 +52,27 @@ const Metric: React.FC<MetricProps> = ({
   const hasTarget = typeof target === "number" && Number.isFinite(target);
   const formattedTarget = hasTarget ? formatTarget(target, precision) : null;
 
-  // Priority style maps – use safe Tailwind tokens (avoid custom 'primary' unless configured)
+  const basePriorityClasses =
+    "rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm " +
+    "dark:border-slate-800 dark:bg-slate-900/80";
+
+  // Priority style maps – keep a neutral foundation with subtle accents per priority.
   const priorityStyles: Record<NonNullable<MetricProps["priority"]>, string> = {
-    high:
-      "bg-gradient-to-br from-blue-50 via-white to-white border-blue-200/70 shadow-lg hover:shadow-xl " +
-      "dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 dark:border-blue-900/60",
-    medium:
-      "bg-white/90 border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 " +
-      "dark:bg-slate-900 dark:border-slate-800",
-    low:
-      "bg-white/80 border-slate-200/60 shadow-sm hover:shadow-sm " +
-      "dark:bg-slate-900/80 dark:border-slate-800/60",
+    high: `${basePriorityClasses} border-2 border-blue-200/80 ring-1 ring-blue-200/60 dark:border-blue-400/60 dark:ring-blue-400/40`,
+    medium: basePriorityClasses,
+    low: `${basePriorityClasses} border border-slate-200/80 dark:border-slate-700`,
   };
 
   const priorityTextStyles: Record<NonNullable<MetricProps["priority"]>, string> = {
     high: "text-slate-900 dark:text-slate-100",
     medium: "text-slate-900 dark:text-slate-100",
-    low: "text-slate-800 dark:text-slate-200",
+    low: "text-slate-900 dark:text-slate-100",
   };
 
   const priorityLabelStyles: Record<NonNullable<MetricProps["priority"]>, string> = {
-    high: "text-blue-700 dark:text-blue-300 font-semibold",
+    high: "text-slate-500 dark:text-slate-400 font-semibold",
     medium: "text-slate-500 dark:text-slate-400",
-    low: "text-slate-400 dark:text-slate-500",
+    low: "text-slate-500 dark:text-slate-400",
   };
 
   const containerClasses = hasTarget
@@ -157,7 +155,7 @@ const Metric: React.FC<MetricProps> = ({
   return (
     <section
       aria-label={`${label} metric`}
-      className={`rounded-2xl border p-4 sm:p-5 transition-all duration-300 backdrop-blur-sm min-h-[96px] ${priorityStyles[priority]}`}
+      className={`sm:p-5 transition-all duration-300 min-h-[96px] ${priorityStyles[priority]}`}
     >
       <div className={containerClasses}>
         <div className="flex flex-col gap-1 text-left">
