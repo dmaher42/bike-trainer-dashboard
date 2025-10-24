@@ -79,7 +79,7 @@ const normalizePanDuration = (value: number): number => {
 
   const truncated = Math.trunc(value);
   return Math.min(
-    STREET_VIEW_MAX_SMOOTH_PAN_MS,
+    STREET_VIEW_MAX_PAN_MS,
     Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, truncated),
   );
 };
