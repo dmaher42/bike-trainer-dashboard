@@ -350,7 +350,17 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [enterFullscreen, exitFullscreen, isFullscreen]);
   
-  const workouts = useMemo(() => defaultWorkouts, []);
+  const workouts = useMemo(() => {
+    const ftpEstimate = 200;
+
+    return defaultWorkouts.map((plan) => ({
+      ...plan,
+      intervals: plan.intervals.map((interval) => ({
+        ...interval,
+        targetPower: Math.round(interval.targetPower * ftpEstimate),
+      })),
+    }));
+  }, []);
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
 
   const {
