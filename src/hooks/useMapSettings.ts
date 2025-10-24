@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_MAP_SETTINGS,
   STREET_VIEW_MAX_PAN_MS,
+  STREET_VIEW_MAX_SMOOTH_PAN_MS,
   STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
@@ -133,7 +134,7 @@ export const useMapSettings = () => {
       storage?.getItem(STORAGE_KEYS.panMs) ?? null,
       DEFAULT_MAP_SETTINGS.streetViewPanMs,
       STREET_VIEW_MIN_PAN_MS,
-      STREET_VIEW_MAX_PAN_MS,
+      STREET_VIEW_MAX_SMOOTH_PAN_MS,
     );
     return parsed <= 0 ? 0 : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, parsed);
   });
@@ -371,7 +372,7 @@ export const useMapSettings = () => {
       const clamped = clampNumber(
         Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, numeric),
         STREET_VIEW_MIN_PAN_MS,
-        STREET_VIEW_MAX_PAN_MS,
+        STREET_VIEW_MAX_SMOOTH_PAN_MS,
       );
       return clamped;
     });

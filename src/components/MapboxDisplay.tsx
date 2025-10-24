@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type mapboxgl from "mapbox-gl";
 import type { Feature, LineString } from "geojson";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 type MapboxDisplayProps = {
   accessToken: string;
@@ -13,8 +11,10 @@ type MapboxDisplayProps = {
   };
 };
 
-const BASE_STYLE = "mapbox://styles/mapbox/streets-v12";
-const TRAFFIC_STYLE = "mapbox://styles/mapbox/traffic-day-v2";
+const MAPLIBRE_MODULE_URL = "https://esm.sh/maplibre-gl@3.7.0";
+const MAPLIBRE_CSS_URL = "https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.css";
+const BASE_STYLE_ID = "mapbox/streets-v12";
+const TRAFFIC_STYLE_ID = "mapbox/traffic-day-v2";
 const ROUTE_SOURCE_ID = "route-line-source";
 const ROUTE_LAYER_ID = "route-line-layer";
 const BUILDINGS_LAYER_ID = "3d-buildings-layer";
@@ -30,14 +30,78 @@ const EMPTY_ROUTE: Feature<LineString> = {
 const DEFAULT_CENTER: [number, number] = [-122.4194, 37.7749];
 const DEFAULT_ZOOM = 11;
 
+const mapboxProtocolToHttp = (url: string, token: string) => {
+  if (!url.startsWith("mapbox://")) {
+    return url;
+  }
+
+  const path = url.replace("mapbox://", "");
+
+  if (path.startsWith("styles/")) {
+    const stylePath = path.replace("styles/", "");
+    return `https://api.mapbox.com/styles/v1/${stylePath}?access_token=${token}`;
+  }
+
+  if (path.startsWith("sprites/")) {
+    const spritePath = path.replace("sprites/", "");
+    const segments = spritePath.split("/");
+    const last = segments.pop();
+    if (!last) {
+      return url;
+    }
+
+    const match = last.match(/([^@]+)(@[^.]*)?\.(png|json)$/);
+    if (!match) {
+      return url;
+    }
+
+    const [, styleId, retina = "", format] = match;
+    const ownerPath = segments.join("/");
+    const base = ownerPath ? `${ownerPath}/${styleId}` : styleId;
+    return `https://api.mapbox.com/styles/v1/${base}/sprite${retina}.${format}?access_token=${token}`;
+  }
+
+  if (path.startsWith("glyphs/")) {
+    const glyphPath = path.replace("glyphs/", "");
+    return `https://api.mapbox.com/fonts/v1/${glyphPath}?access_token=${token}`;
+  }
+
+  const [base, query = ""] = path.split("?");
+  const needsJson = !base.endsWith(".json") && !base.endsWith(".pbf");
+  const resourcePath = needsJson ? `${base}.json` : base;
+  const params = new URLSearchParams(query);
+  if (!params.has("secure")) {
+    params.set("secure", "1");
+  }
+  params.set("access_token", token);
+  const queryString = params.toString();
+  return `https://api.mapbox.com/v4/${resourcePath}${queryString ? `?${queryString}` : ""}`;
+};
+
+const ensureCssLoaded = () => {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  if (document.getElementById("maplibre-gl-css")) {
+    return;
+  }
+
+  const link = document.createElement("link");
+  link.id = "maplibre-gl-css";
+  link.rel = "stylesheet";
+  link.href = MAPLIBRE_CSS_URL;
+  document.head.appendChild(link);
+};
+
 const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const mapboxModuleRef = useRef<typeof mapboxgl>();
+  const mapRef = useRef<any>(null);
+  const mapboxModuleRef = useRef<any>();
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapboxReady, setMapboxReady] = useState(false);
   const hasFitBoundsRef = useRef(false);
-  const currentStyleRef = useRef(BASE_STYLE);
+  const currentStyleRef = useRef("");
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialPositionRef = useRef<{ center: [number, number]; zoom: number }>();
 
@@ -77,7 +141,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       });
     }
 
-    const source = map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+    const source = map.getSource(ROUTE_SOURCE_ID) as { setData: (data: Feature<LineString>) => void } | undefined;
     source?.setData(routeFeature ?? EMPTY_ROUTE);
 
     if (!map.getLayer(ROUTE_LAYER_ID)) {
@@ -115,7 +179,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
         if (layer.type !== "symbol") {
           return false;
         }
-        const layout = layer.layout as mapboxgl.SymbolLayout | undefined;
+        const layout = (layer as { layout?: Record<string, unknown> }).layout;
         return Boolean(layout && "text-field" in layout && layout["text-field"]);
       })?.id;
 
@@ -144,33 +208,36 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
     }
   }, []);
 
-  const ensureTerrain = useCallback((enable: boolean) => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) {
-      return;
-    }
-
-    const hasSource = Boolean(map.getSource(TERRAIN_SOURCE_ID));
-
-    if (enable) {
-      if (!hasSource) {
-        map.addSource(TERRAIN_SOURCE_ID, {
-          type: "raster-dem",
-          url: "mapbox://mapbox.terrain-rgb",
-          tileSize: 512,
-          maxzoom: 14,
-        });
+  const ensureTerrain = useCallback(
+    (enable: boolean) => {
+      const map = mapRef.current;
+      if (!map || !map.isStyleLoaded()) {
+        return;
       }
 
-      map.setTerrain({ source: TERRAIN_SOURCE_ID, exaggeration: 1 });
-      return;
-    }
+      const hasSource = Boolean(map.getSource(TERRAIN_SOURCE_ID));
 
-    map.setTerrain(null);
-    if (hasSource) {
-      map.removeSource(TERRAIN_SOURCE_ID);
-    }
-  }, []);
+      if (enable) {
+        if (!hasSource) {
+          map.addSource(TERRAIN_SOURCE_ID, {
+            type: "raster-dem",
+            url: mapboxProtocolToHttp("mapbox://mapbox.terrain-rgb", accessToken),
+            tileSize: 512,
+            maxzoom: 14,
+          });
+        }
+
+        map.setTerrain({ source: TERRAIN_SOURCE_ID, exaggeration: 1 });
+        return;
+      }
+
+      map.setTerrain(null);
+      if (hasSource) {
+        map.removeSource(TERRAIN_SOURCE_ID);
+      }
+    },
+    [accessToken],
+  );
 
   const fitRoute = useCallback(() => {
     const map = mapRef.current;
@@ -190,7 +257,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       return;
     }
 
-    const bounds = coordinates.reduce<mapboxgl.LngLatBounds | null>((acc, coord) => {
+    const bounds = coordinates.reduce<any>((acc, coord) => {
       if (!acc) {
         return new mapbox.LngLatBounds(coord as [number, number], coord as [number, number]);
       }
@@ -228,17 +295,17 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
 
     const loadModule = async () => {
       try {
-        const mod = await import("mapbox-gl");
+        ensureCssLoaded();
+        const mod = await import(/* @vite-ignore */ MAPLIBRE_MODULE_URL);
         if (cancelled) {
           return;
         }
 
-        const mapbox = (mod as { default?: typeof mapboxgl }).default ?? (mod as typeof mapboxgl);
+        const mapbox = (mod as { default?: any }).default ?? mod;
         mapboxModuleRef.current = mapbox;
-        mapbox.accessToken = accessToken;
         setMapboxReady(true);
       } catch (error) {
-        console.error("[MapboxDisplay] Failed to load mapbox-gl", error);
+        console.error("[MapboxDisplay] Failed to load maplibre-gl", error);
       }
     };
 
@@ -247,7 +314,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, []);
 
   useEffect(() => {
     if (!mapboxReady) {
@@ -265,19 +332,29 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     };
-
-    mapbox.accessToken = accessToken;
-
+    const baseStyleUrl = mapboxProtocolToHttp(`mapbox://styles/${BASE_STYLE_ID}`, accessToken);
     const map = new mapbox.Map({
       container,
-      style: BASE_STYLE,
+      style: baseStyleUrl,
       center,
       zoom,
       antialias: true,
+      transformRequest: (url: string) => {
+        if (url.startsWith("mapbox://")) {
+          return { url: mapboxProtocolToHttp(url, accessToken) };
+        }
+
+        if (url.startsWith("https://api.mapbox.com") && !url.includes("access_token=")) {
+          const separator = url.includes("?") ? "&" : "?";
+          return { url: `${url}${separator}access_token=${accessToken}` };
+        }
+
+        return { url };
+      },
     });
 
     mapRef.current = map;
-    currentStyleRef.current = BASE_STYLE;
+    currentStyleRef.current = baseStyleUrl;
 
     const handleLoad = () => {
       setMapLoaded(true);
@@ -354,6 +431,12 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
     }
   }, [mapLoaded, routeFeature, fitRoute]);
 
+  const baseStyle = useMemo(() => mapboxProtocolToHttp(`mapbox://styles/${BASE_STYLE_ID}`, accessToken), [accessToken]);
+  const trafficStyle = useMemo(
+    () => mapboxProtocolToHttp(`mapbox://styles/${TRAFFIC_STYLE_ID}`, accessToken),
+    [accessToken],
+  );
+
   useEffect(() => {
     if (!mapLoaded) {
       return;
@@ -364,14 +447,14 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       return;
     }
 
-    const desiredStyle = options.showTraffic ? TRAFFIC_STYLE : BASE_STYLE;
+    const desiredStyle = options.showTraffic ? trafficStyle : baseStyle;
     if (currentStyleRef.current === desiredStyle) {
       return;
     }
 
     currentStyleRef.current = desiredStyle;
     map.setStyle(desiredStyle);
-  }, [mapLoaded, options.showTraffic]);
+  }, [mapLoaded, options.showTraffic, baseStyle, trafficStyle]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 };
