@@ -7,6 +7,7 @@ import {
   STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
+  STREET_VIEW_MIN_SMOOTH_PAN_MS,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
   type HeadingMode,
@@ -135,7 +136,7 @@ export const useMapSettings = () => {
       STREET_VIEW_MIN_PAN_MS,
       STREET_VIEW_MAX_PAN_MS,
     );
-    return normalizePanDuration(parsed);
+    return parsed <= 0 ? 0 : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, parsed);
   });
 
   const [streetViewMinStepMs, setStreetViewMinStepMsState] = useState<number>(() => {
@@ -362,8 +363,18 @@ export const useMapSettings = () => {
 
   const setStreetViewPanMs = useCallback((value: number) => {
     setStreetViewPanMsState((prev) => {
-      const normalized = normalizePanDuration(value);
-      return normalized === prev ? prev : normalized;
+      const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewPanMs;
+      const numeric = Number.isFinite(value) ? Math.trunc(value) : fallback;
+      if (numeric <= 0) {
+        return 0;
+      }
+
+      const clamped = clampNumber(
+        Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, numeric),
+        STREET_VIEW_MIN_PAN_MS,
+        STREET_VIEW_MAX_PAN_MS,
+      );
+      return clamped;
     });
   }, []);
 

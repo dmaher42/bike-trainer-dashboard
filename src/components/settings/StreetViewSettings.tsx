@@ -7,6 +7,7 @@ import {
   STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
+  STREET_VIEW_MIN_SMOOTH_PAN_MS,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
 } from "../../types/settings";
@@ -72,13 +73,21 @@ export function StreetViewSettings() {
   };
 
   const handlePanDurationChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const parsed = parseNumberInput(event);
+    const raw = Number(event.target.value);
+    if (!Number.isFinite(raw)) {
+      setStreetViewPanMs(DEFAULT_MAP_SETTINGS.streetViewPanMs);
+      return;
+    }
+
+    const rounded = Math.trunc(raw);
     const next =
-      parsed === null
-        ? DEFAULT_MAP_SETTINGS.streetViewPanMs
-        : parsed <= STREET_VIEW_MIN_PAN_MS
-        ? STREET_VIEW_MIN_PAN_MS
-        : clamp(parsed, STREET_VIEW_MIN_SMOOTHING_MS, STREET_VIEW_MAX_PAN_MS);
+      rounded <= 0
+        ? 0
+        : clamp(
+            Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, rounded),
+            STREET_VIEW_MIN_PAN_MS,
+            STREET_VIEW_MAX_PAN_MS,
+          );
     setStreetViewPanMs(next);
   };
 
@@ -161,20 +170,47 @@ export function StreetViewSettings() {
         </div>
       </details>
 
-      <label className="block text-sm text-neutral-300">
-        <span className="text-xs text-neutral-400">Pan duration (ms)</span>
-        <input
-          type="number"
-          min={STREET_VIEW_MIN_PAN_MS}
-          max={STREET_VIEW_MAX_PAN_MS}
-          step={50}
-          placeholder={String(DEFAULT_MAP_SETTINGS.streetViewPanMs)}
-          value={streetViewPanMs}
-          onChange={handlePanDurationChange}
-          className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-500 focus-visible:border-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-        />
+      <label
+        className="block text-sm text-neutral-300"
+        title="Ease Street View heading/pitch over this time. 0 = off (snaps)."
+      >
+        <span className="text-xs text-neutral-400">Pan Duration (ms)</span>
+        <div className="mt-2 flex items-center gap-3">
+          <input
+            type="range"
+            min={STREET_VIEW_MIN_PAN_MS}
+            max={STREET_VIEW_MAX_PAN_MS}
+            step={50}
+            value={
+              streetViewPanMs === 0
+                ? 0
+                : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, streetViewPanMs)
+            }
+            onChange={handlePanDurationChange}
+            className="h-2 w-full cursor-pointer accent-emerald-500"
+            list="street-view-pan-duration-ticks"
+            aria-valuetext={
+              streetViewPanMs === 0
+                ? "Off"
+                : `${streetViewPanMs} milliseconds`
+            }
+          />
+          <span className="w-14 text-right text-xs text-neutral-400">
+            {streetViewPanMs === 0 ? "Off" : `${streetViewPanMs} ms`}
+          </span>
+        </div>
+        <datalist id="street-view-pan-duration-ticks">
+          <option value="0" label="Off" />
+          <option value="200" />
+          <option value="400" />
+          <option value="600" />
+          <option value="800" />
+          <option value="1000" />
+          <option value="1200" />
+          <option value="1500" />
+        </datalist>
         <span className="mt-1 block text-[11px] text-neutral-500">
-          Ease Street View heading/pitch over this time. 0 = off, otherwise 200–800ms.
+          Ease Street View heading/pitch over this time. 0 = off (snaps).
         </span>
       </label>
 

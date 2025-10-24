@@ -1,6 +1,7 @@
 /* @vitest-environment node */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { STREET_VIEW_MIN_SMOOTH_PAN_MS } from "../types/settings";
 
 let stateCursor = 0;
 const stateSlots: unknown[] = [];
@@ -164,6 +165,16 @@ describe("useMapSettings", () => {
     expect(state.streetViewPanMs).toBe(800);
     expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "800");
 
+    state.setStreetViewPanMs(120);
+    flushEffects();
+    state = renderHook();
+
+    expect(state.streetViewPanMs).toBe(STREET_VIEW_MIN_SMOOTH_PAN_MS);
+    expect(setItem).toHaveBeenCalledWith(
+      "streetViewPanMs",
+      String(STREET_VIEW_MIN_SMOOTH_PAN_MS),
+    );
+
     state.setStreetViewMinStepMs(6000);
     flushEffects();
     state = renderHook();
@@ -205,12 +216,13 @@ describe("useMapSettings", () => {
     stateCursor = 0;
     stateSlots.length = 0;
     effectHandlers = [];
+    store.set("streetViewPanMs", "150");
     state = renderHook();
 
     expect(state.streetViewUpdateMs).toBe(2600);
     expect(state.usePointStep).toBe(true);
     expect(state.streetViewPointsPerStep).toBe(5);
-    expect(state.streetViewPanMs).toBe(800);
+    expect(state.streetViewPanMs).toBe(STREET_VIEW_MIN_SMOOTH_PAN_MS);
     expect(state.streetViewMinStepMs).toBe(1200);
   });
 

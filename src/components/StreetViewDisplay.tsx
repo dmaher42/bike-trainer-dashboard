@@ -11,12 +11,11 @@ import { useMapSettings } from "../hooks/useMapSettings";
 import {
   STREET_VIEW_MAX_PAN_MS,
   STREET_VIEW_MIN_PAN_MS,
-  STREET_VIEW_MIN_SMOOTHING_MS,
+  STREET_VIEW_MIN_SMOOTH_PAN_MS,
 } from "../types/settings";
 
 const MIN_POINTS_FOR_STREET_VIEW = 2;
-const LOOKAHEAD = 5;
-const MIN_INDEX_STEP_FOR_HEADING = 1;
+const NEXT_POINT_OFFSET = 1;
 const MAX_TURN_PER_UPDATE = 20;
 const HEADING_EMA_ALPHA = 0.25;
 
@@ -557,22 +556,16 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     panorama.setPosition(position);
 
-    const forwardIndex = Math.min(totalPoints - 1, targetIndex + LOOKAHEAD);
-    const backwardIndex = Math.max(0, targetIndex - LOOKAHEAD);
-
-    const headingTargetPoint =
+    const forwardIndex = Math.min(totalPoints - 1, targetIndex + NEXT_POINT_OFFSET);
+    const fallbackIndex =
       forwardIndex !== targetIndex
-        ? routeLatLngs[forwardIndex]
-        : backwardIndex !== targetIndex
-        ? routeLatLngs[backwardIndex]
-        : position;
+        ? forwardIndex
+        : Math.max(0, targetIndex - NEXT_POINT_OFFSET);
+
+    const headingTargetPoint = routeLatLngs[fallbackIndex] ?? position;
 
     const hasStableHeadings =
       Array.isArray(route.headings) && route.headings.length === totalPoints;
-
-    const smallStep =
-      previousAppliedIndex !== -1 &&
-      Math.abs(targetIndex - previousAppliedIndex) < MIN_INDEX_STEP_FOR_HEADING;
 
     const applyDirection = (heading: number) => {
       const normalized = normalizeDeg(heading);
@@ -583,7 +576,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     let shouldApplyDirection = true;
     if (hasStableHeadings) {
       baseHeading = route.headings![targetIndex];
-    } else if (smallStep || headingTargetPoint === position) {
+    } else if (headingTargetPoint === position) {
       const currentPov = panorama.getPov ? panorama.getPov() : undefined;
       baseHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
       shouldApplyDirection = false;
@@ -663,17 +656,20 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     };
 
     const rawPanMs = Number.isFinite(streetViewPanMs)
-      ? Math.trunc(streetViewPanMs ?? 0)
+      ? Math.min(
+          STREET_VIEW_MAX_PAN_MS,
+          Math.max(STREET_VIEW_MIN_PAN_MS, Math.trunc(streetViewPanMs ?? 0)),
+        )
       : 0;
-    const basePanMs =
-      headingMode === "fixed" || rawPanMs <= 0
-        ? 0
-        : Math.min(
-            STREET_VIEW_MAX_PAN_MS,
-            Math.max(STREET_VIEW_MIN_SMOOTHING_MS, rawPanMs),
-          );
 
-    const panMs = panoChanged ? 0 : basePanMs;
+    const basePanMs = headingMode === "fixed" ? 0 : rawPanMs;
+
+    const panDurationMs =
+      basePanMs <= STREET_VIEW_MIN_PAN_MS
+        ? 0
+        : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, basePanMs);
+
+    const panMs = panoChanged ? 0 : panDurationMs;
 
     const requiresHeadingUpdate = headingDelta >= 0.1 || pitchDelta >= 0.1;
 
@@ -683,49 +679,65 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       cancelOngoingAnimation();
       panorama.setPov({ heading: targetHeading, pitch: targetPitch, zoom: 1 });
     } else {
-      cancelOngoingAnimation();
-      animStartRef.current = now;
-      lastFrameMsRef.current = 0;
-      startHeadingRef.current = currentHeading;
-      startPitchRef.current = currentPitch;
-      targetHeadingRef.current = targetHeading;
-      targetPitchRef.current = targetPitch;
+      const currentPov = panorama.getPov
+        ? panorama.getPov()
+        : { heading: effectiveHeading, pitch: targetPitch, zoom: 1 };
 
-      const duration = panMs;
+      const headingDelta = Math.abs(
+        shortestDeltaDeg(currentPov.heading ?? effectiveHeading, effectiveHeading),
+      );
+      const pitchDelta = Math.abs((currentPov.pitch ?? targetPitch) - targetPitch);
 
-      const animate = (time: number) => {
-        const panoramaInstance = panoramaRef.current;
-        if (!panoramaInstance) {
-          rafIdRef.current = null;
-          return;
-        }
+      if (headingDelta < 0.01 && pitchDelta < 0.01) {
+        panorama.setPov({ heading: effectiveHeading, pitch: targetPitch, zoom: 1 });
+      } else {
+        cancelOngoingAnimation();
+        animStartRef.current = now;
+        lastFrameMsRef.current = 0;
+        startHeadingRef.current = currentPov.heading ?? effectiveHeading;
+        startPitchRef.current = currentPov.pitch ?? targetPitch;
+        targetHeadingRef.current = effectiveHeading;
+        targetPitchRef.current = targetPitch;
 
-        if (lastFrameMsRef.current && time - lastFrameMsRef.current < MIN_FRAME_DELTA) {
-          rafIdRef.current = requestAnimationFrame(animate);
-          return;
-        }
+        const duration = panMs;
 
-        lastFrameMsRef.current = time;
+        const animate = (time: number) => {
+          const panoramaInstance = panoramaRef.current;
+          if (!panoramaInstance) {
+            rafIdRef.current = null;
+            return;
+          }
 
-        const elapsed = time - animStartRef.current;
-        const t = duration > 0 ? Math.min(1, elapsed / duration) : 1;
-        const eased = easeInOutQuad(t);
+          if (lastFrameMsRef.current && time - lastFrameMsRef.current < MIN_FRAME_DELTA) {
+            rafIdRef.current = requestAnimationFrame(animate);
+            return;
+          }
 
-        const deltaHeading = shortestDeltaDeg(startHeadingRef.current, targetHeadingRef.current);
-        const nextHeading = normalizeDeg(startHeadingRef.current + deltaHeading * eased);
-        const nextPitch =
-          startPitchRef.current + (targetPitchRef.current - startPitchRef.current) * eased;
+          lastFrameMsRef.current = time;
 
-        panoramaInstance.setPov({ heading: nextHeading, pitch: nextPitch, zoom: 1 });
+          const elapsed = time - animStartRef.current;
+          const t = duration > 0 ? Math.min(1, elapsed / duration) : 1;
+          const eased = easeInOutQuad(t);
 
-        if (t < 1) {
-          rafIdRef.current = requestAnimationFrame(animate);
-        } else {
-          rafIdRef.current = null;
-        }
-      };
+          const deltaHeading = shortestDeltaDeg(
+            startHeadingRef.current,
+            targetHeadingRef.current,
+          );
+          const nextHeading = normalizeDeg(startHeadingRef.current + deltaHeading * eased);
+          const nextPitch =
+            startPitchRef.current + (targetPitchRef.current - startPitchRef.current) * eased;
 
-      rafIdRef.current = requestAnimationFrame(animate);
+          panoramaInstance.setPov({ heading: nextHeading, pitch: nextPitch });
+
+          if (t < 1) {
+            rafIdRef.current = requestAnimationFrame(animate);
+          } else {
+            rafIdRef.current = null;
+          }
+        };
+
+        rafIdRef.current = requestAnimationFrame(animate);
+      }
     }
 
     if (panoChanged) {
