@@ -5,7 +5,6 @@ import {
   STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
-  STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_SMOOTH_PAN_MS,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
@@ -80,7 +79,7 @@ const normalizePanDuration = (value: number): number => {
   const truncated = Math.trunc(value);
   return Math.min(
     STREET_VIEW_MAX_PAN_MS,
-    Math.max(STREET_VIEW_MIN_SMOOTHING_MS, truncated),
+    Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, truncated),
   );
 };
 
