@@ -521,7 +521,7 @@ function App() {
             {activeView === "mapbox" && mapboxApiKey && (
               <div className="relative h-[60vh] min-h-[360px] overflow-hidden rounded-2xl border border-neutral-800">
                 <MapboxDisplay
-                  accessToken={mapboxApiKey}
+                  mapboxToken={mapboxApiKey}
                   route={route}
                   options={{
                     showBuildings: mapboxSettings.showBuildings,
