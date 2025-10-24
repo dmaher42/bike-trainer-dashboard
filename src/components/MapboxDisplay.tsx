@@ -4,7 +4,7 @@ import type { Feature, LineString } from "geojson";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 type MapboxDisplayProps = {
-  accessToken: string;
+  mapboxToken?: string;
   route: { pts: Array<{ x: number; y: number }>; name?: string };
   options: {
     showBuildings: boolean;
@@ -30,7 +30,7 @@ const EMPTY_ROUTE: Feature<LineString> = {
 const DEFAULT_CENTER: [number, number] = [-122.4194, 37.7749];
 const DEFAULT_ZOOM = 11;
 
-const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
+const MapboxDisplay = ({ mapboxToken, route, options }: MapboxDisplayProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapboxModuleRef = useRef<typeof mapboxgl>();
@@ -40,6 +40,19 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
   const currentStyleRef = useRef(BASE_STYLE);
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialPositionRef = useRef<{ center: [number, number]; zoom: number }>();
+
+  const resolvedToken = useMemo(() => {
+    if (mapboxToken && mapboxToken.trim()) {
+      return mapboxToken;
+    }
+
+    const envToken = (import.meta.env.VITE_MAPBOX_TOKEN as string | undefined) ?? undefined;
+    if (envToken && envToken.trim()) {
+      return envToken;
+    }
+
+    return undefined;
+  }, [mapboxToken]);
 
   if (!initialPositionRef.current) {
     const firstPoint = route.pts[0];
@@ -220,7 +233,8 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
   }, [ensureRouteLayer, ensureTerrain, ensureBuildingsLayer, options.show3D, options.showBuildings]);
 
   useEffect(() => {
-    if (!IS_BROWSER) {
+    if (!IS_BROWSER || !resolvedToken) {
+      setMapboxReady(false);
       return;
     }
 
@@ -235,7 +249,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
 
         const mapbox = (mod as { default?: typeof mapboxgl }).default ?? (mod as typeof mapboxgl);
         mapboxModuleRef.current = mapbox;
-        mapbox.accessToken = accessToken;
+        mapbox.accessToken = resolvedToken;
         setMapboxReady(true);
       } catch (error) {
         console.error("[MapboxDisplay] Failed to load mapbox-gl", error);
@@ -247,10 +261,19 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [resolvedToken]);
 
   useEffect(() => {
-    if (!mapboxReady) {
+    const mapbox = mapboxModuleRef.current;
+    if (!mapbox || !resolvedToken) {
+      return;
+    }
+
+    mapbox.accessToken = resolvedToken;
+  }, [resolvedToken]);
+
+  useEffect(() => {
+    if (!mapboxReady || !resolvedToken) {
       return;
     }
 
@@ -266,7 +289,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       zoom: DEFAULT_ZOOM,
     };
 
-    mapbox.accessToken = accessToken;
+    mapbox.accessToken = resolvedToken;
 
     const map = new mapbox.Map({
       container,
@@ -305,7 +328,7 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       mapRef.current = null;
       setMapLoaded(false);
     };
-  }, [accessToken, mapboxReady]);
+  }, [resolvedToken, mapboxReady]);
 
   useEffect(() => {
     const map = mapRef.current;
