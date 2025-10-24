@@ -95,6 +95,20 @@ describe("useMapSettings", () => {
     expect(getItem).toHaveBeenCalledWith("streetViewMinStepMs");
   });
 
+  it("rounds stored pan duration up to the smoothing minimum", () => {
+    const store = new Map<string, string>([["streetViewPanMs", "120"]]);
+    const getItem = vi.fn((key: string) => store.get(key) ?? null);
+    const setItem = vi.fn();
+    const removeItem = vi.fn();
+
+    setWindowStorage({ getItem, setItem, removeItem } as unknown as Storage);
+
+    const state = renderHook();
+
+    expect(state.streetViewPanMs).toBe(200);
+    expect(getItem).toHaveBeenCalledWith("streetViewPanMs");
+  });
+
   it("clamps update interval between 500 and 10000", () => {
     const getItem = vi.fn((key: string) => {
       if (key === "streetViewUpdateMs") {
@@ -104,7 +118,7 @@ describe("useMapSettings", () => {
         return "0"; // Should clamp to at least 1.
       }
       if (key === "streetViewPanMs") {
-        return "2000"; // Should clamp to max 1500.
+        return "2000"; // Should clamp to max 800.
       }
       if (key === "streetViewMinStepMs") {
         return "-50";
@@ -120,7 +134,7 @@ describe("useMapSettings", () => {
 
     expect(state.streetViewUpdateMs).toBe(500);
     expect(state.streetViewPointsPerStep).toBe(1);
-    expect(state.streetViewPanMs).toBe(1500);
+    expect(state.streetViewPanMs).toBe(800);
     expect(state.streetViewMinStepMs).toBe(0);
 
     state.setStreetViewUpdateMs(12000);
@@ -137,12 +151,19 @@ describe("useMapSettings", () => {
     expect(state.streetViewPointsPerStep).toBe(1);
     expect(setItem).toHaveBeenCalledWith("streetViewPointsPerStep", "1");
 
+    state.setStreetViewPanMs(120);
+    flushEffects();
+    state = renderHook();
+
+    expect(state.streetViewPanMs).toBe(200);
+    expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "200");
+
     state.setStreetViewPanMs(2000);
     flushEffects();
     state = renderHook();
 
-    expect(state.streetViewPanMs).toBe(1500);
-    expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "1500");
+    expect(state.streetViewPanMs).toBe(800);
+    expect(setItem).toHaveBeenCalledWith("streetViewPanMs", "800");
 
     state.setStreetViewPanMs(120);
     flushEffects();

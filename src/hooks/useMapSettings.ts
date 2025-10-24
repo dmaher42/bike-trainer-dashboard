@@ -5,6 +5,7 @@ import {
   STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
+  STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_SMOOTH_PAN_MS,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
@@ -65,6 +66,22 @@ const parsePoints = (value: string | null, fallback: number): number => {
   }
 
   return Math.max(STREET_VIEW_MIN_POINTS_STEP, Math.trunc(numeric));
+};
+
+const normalizePanDuration = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return STREET_VIEW_MIN_PAN_MS;
+  }
+
+  if (value <= STREET_VIEW_MIN_PAN_MS) {
+    return STREET_VIEW_MIN_PAN_MS;
+  }
+
+  const truncated = Math.trunc(value);
+  return Math.min(
+    STREET_VIEW_MAX_PAN_MS,
+    Math.max(STREET_VIEW_MIN_SMOOTHING_MS, truncated),
+  );
 };
 
 const getStorage = (): NullableStorage => {

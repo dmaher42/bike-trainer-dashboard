@@ -29,10 +29,24 @@ interface StreetViewDisplayProps {
   onError?: (error: string) => void;
 }
 
+const normalizeDeg = (deg: number) => {
+  let d = deg % 360;
+  if (d < 0) {
+    d += 360;
+  }
+  return d;
+};
+
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 const toDegrees = (radians: number) => (radians * 180) / Math.PI;
 
 const bearing = (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral): number => {
+  const spherical = google?.maps?.geometry?.spherical;
+  if (spherical?.computeHeading) {
+    const computed = spherical.computeHeading(a, b);
+    return normalizeDeg(computed);
+  }
+
   const lat1 = toRadians(a.lat);
   const lat2 = toRadians(b.lat);
   const deltaLon = toRadians(b.lng - a.lng);
@@ -43,15 +57,7 @@ const bearing = (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral): nu
     Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
 
   const heading = toDegrees(Math.atan2(y, x));
-  return (heading + 360) % 360;
-};
-
-const normalizeDeg = (deg: number) => {
-  let d = deg % 360;
-  if (d < 0) {
-    d += 360;
-  }
-  return d;
+  return normalizeDeg(heading);
 };
 
 const shortestDeltaDeg = (from: number, to: number) => {
@@ -611,38 +617,35 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     const targetPitch = 0;
 
-    const previousPanoId = lastPanoIdRef.current;
-    const links = panorama.getLinks ? (panorama.getLinks() as Link[]) : undefined;
-    const bestLink = chooseBestForwardLink(
-      links,
-      forwardHeading,
-      position.lat,
-      position.lng,
-      previousPanoId,
-      recentPanosRef.current,
-    );
-
-    const normalizedLinkHeading =
-      bestLink?.heading != null ? normalizeDeg(bestLink.heading) : null;
-
-    panorama.setZoom(1);
-
-    const newPanoId = panorama.getPano ? panorama.getPano() : null;
-    const panoChanged = newPanoId != null && newPanoId !== previousPanoId;
-
-    if (panoChanged && normalizedLinkHeading != null && headingMode !== "fixed") {
-      forwardHeading = normalizedLinkHeading;
-      effectiveHeading = normalizedLinkHeading;
-    }
-
-    smoothedHeadingRef.current =
-      panoChanged && headingMode !== "fixed" ? effectiveHeading : forwardHeading;
+    smoothedHeadingRef.current = forwardHeading;
 
     if (headingMode === "fixed") {
       effectiveHeading = fixedHeadingRef.current ?? effectiveHeading;
     }
 
-    latestTargetHeadingRef.current = effectiveHeading;
+    const targetHeading = effectiveHeading;
+
+    const previousPanoId = lastPanoIdRef.current;
+    const currentPov = panorama.getPov ? panorama.getPov() : undefined;
+    const currentHeading = currentPov?.heading ?? targetHeading;
+    const headingDelta = Math.abs(shortestDeltaDeg(currentHeading, targetHeading));
+    const currentPitch = currentPov?.pitch ?? targetPitch;
+    const pitchDelta = Math.abs(currentPitch - targetPitch);
+
+    const currentZoom =
+      typeof panorama.getZoom === "function" ? panorama.getZoom() : undefined;
+    if (
+      currentZoom == null ||
+      !Number.isFinite(currentZoom) ||
+      Math.abs(currentZoom - 1) > 1e-3
+    ) {
+      panorama.setZoom(1);
+    }
+
+    const newPanoId = panorama.getPano ? panorama.getPano() : null;
+    const panoChanged = newPanoId != null && newPanoId !== previousPanoId;
+
+    latestTargetHeadingRef.current = targetHeading;
     latestTargetPitchRef.current = targetPitch;
 
     const cancelOngoingAnimation = () => {
@@ -668,9 +671,13 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     const panMs = panoChanged ? 0 : panDurationMs;
 
-    if (panMs <= STREET_VIEW_MIN_PAN_MS) {
+    const requiresHeadingUpdate = headingDelta >= 0.1 || pitchDelta >= 0.1;
+
+    if (!requiresHeadingUpdate) {
       cancelOngoingAnimation();
-      panorama.setPov({ heading: effectiveHeading, pitch: targetPitch, zoom: 1 });
+    } else if (panMs <= STREET_VIEW_MIN_PAN_MS) {
+      cancelOngoingAnimation();
+      panorama.setPov({ heading: targetHeading, pitch: targetPitch, zoom: 1 });
     } else {
       const currentPov = panorama.getPov
         ? panorama.getPov()
