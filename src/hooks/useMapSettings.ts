@@ -6,6 +6,7 @@ import {
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
   STREET_VIEW_MIN_POINTS_STEP,
+  STREET_VIEW_MIN_SMOOTH_PAN_MS,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
   STREET_VIEW_MIN_UPDATE_MS,
   type HeadingMode,
@@ -112,12 +113,13 @@ export const useMapSettings = () => {
 
   const [streetViewPanMs, setStreetViewPanMsState] = useState<number>(() => {
     const storage = getStorage();
-    return parseNumber(
+    const parsed = parseNumber(
       storage?.getItem(STORAGE_KEYS.panMs) ?? null,
       DEFAULT_MAP_SETTINGS.streetViewPanMs,
       STREET_VIEW_MIN_PAN_MS,
       STREET_VIEW_MAX_PAN_MS,
     );
+    return parsed <= 0 ? 0 : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, parsed);
   });
 
   const [streetViewMinStepMs, setStreetViewMinStepMsState] = useState<number>(() => {
@@ -345,8 +347,17 @@ export const useMapSettings = () => {
   const setStreetViewPanMs = useCallback((value: number) => {
     setStreetViewPanMsState((prev) => {
       const fallback = typeof prev === "number" ? prev : DEFAULT_MAP_SETTINGS.streetViewPanMs;
-      const numeric = Number.isFinite(value) ? value : fallback;
-      return clampNumber(numeric, STREET_VIEW_MIN_PAN_MS, STREET_VIEW_MAX_PAN_MS);
+      const numeric = Number.isFinite(value) ? Math.trunc(value) : fallback;
+      if (numeric <= 0) {
+        return 0;
+      }
+
+      const clamped = clampNumber(
+        Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, numeric),
+        STREET_VIEW_MIN_PAN_MS,
+        STREET_VIEW_MAX_PAN_MS,
+      );
+      return clamped;
     });
   }, []);
 
