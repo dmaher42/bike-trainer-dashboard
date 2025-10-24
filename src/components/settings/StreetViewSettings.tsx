@@ -2,10 +2,10 @@ import { ChangeEvent } from "react";
 import {
   DEFAULT_MAP_SETTINGS,
   STREET_VIEW_MAX_PAN_MS,
+  STREET_VIEW_MAX_SMOOTH_PAN_MS,
   STREET_VIEW_MAX_STEP_COOLDOWN_MS,
   STREET_VIEW_MAX_UPDATE_MS,
   STREET_VIEW_MIN_PAN_MS,
-  STREET_VIEW_MIN_SMOOTHING_MS,
   STREET_VIEW_MIN_POINTS_STEP,
   STREET_VIEW_MIN_SMOOTH_PAN_MS,
   STREET_VIEW_MIN_STEP_COOLDOWN_MS,
@@ -86,7 +86,7 @@ export function StreetViewSettings() {
         : clamp(
             Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, rounded),
             STREET_VIEW_MIN_PAN_MS,
-            STREET_VIEW_MAX_PAN_MS,
+            STREET_VIEW_MAX_SMOOTH_PAN_MS,
           );
     setStreetViewPanMs(next);
   };
@@ -179,7 +179,7 @@ export function StreetViewSettings() {
           <input
             type="range"
             min={STREET_VIEW_MIN_PAN_MS}
-            max={STREET_VIEW_MAX_PAN_MS}
+            max={STREET_VIEW_MAX_SMOOTH_PAN_MS}
             step={50}
             value={
               streetViewPanMs === 0
