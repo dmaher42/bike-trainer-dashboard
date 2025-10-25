@@ -171,6 +171,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const latestTargetHeadingRef = useRef<number>(0);
   const latestTargetPitchRef = useRef<number>(0);
   const fixedHeadingRef = useRef<number | null>(null);
+  const programmaticPovRef = useRef(false);
 
   const {
     usePointStep,
@@ -195,6 +196,39 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         lng: (point.lon ?? point.lng) as number,
       }));
   }, [route.pts]);
+
+  const segmentBearings = useMemo(() => {
+    if (routeLatLngs.length === 0) {
+      return [] as number[];
+    }
+
+    const bearings: number[] = new Array(routeLatLngs.length).fill(0);
+    for (let i = 0; i < routeLatLngs.length - 1; i += 1) {
+      bearings[i] = bearing(routeLatLngs[i], routeLatLngs[i + 1]);
+    }
+
+    const lastHeading = bearings.length > 1 ? bearings[bearings.length - 2] : bearings[0];
+    bearings[bearings.length - 1] = lastHeading ?? 0;
+    return bearings;
+  }, [routeLatLngs]);
+
+  const setPanoramaPov = useCallback(
+    (panorama: google.maps.StreetViewPanorama, pov: google.maps.StreetViewPov) => {
+      programmaticPovRef.current = true;
+      panorama.setPov(pov);
+
+      const clearFlag = () => {
+        programmaticPovRef.current = false;
+      };
+
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(clearFlag);
+      } else {
+        setTimeout(clearFlag, 16);
+      }
+    },
+    [],
+  );
 
   const progress = useMemo(() => {
     const total = routeTotal > 0 ? routeTotal : route.total;
@@ -316,9 +350,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       Array.isArray(route.headings) && route.headings.length === routeLatLngs.length;
     const baseInitialHeading = hasStableHeadings
       ? route.headings![0]
-      : routeLatLngs.length > 1
-      ? bearing(routeLatLngs[0], routeLatLngs[1])
-      : 0;
+      : segmentBearings[0] ?? (routeLatLngs.length > 1 ? bearing(routeLatLngs[0], routeLatLngs[1]) : 0);
     const initialHeading = reverseRoute
       ? normalizeDeg(360 - baseInitialHeading)
       : baseInitialHeading;
@@ -348,7 +380,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       );
     } else {
       panoramaRef.current.setPosition(routeLatLngs[0]);
-      panoramaRef.current.setPov({ heading: initialHeading, pitch: 0 });
+      setPanoramaPov(panoramaRef.current, { heading: initialHeading, pitch: 0 });
     }
 
     const panoramaInstance = panoramaRef.current;
@@ -384,13 +416,13 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         lastPanoIdRef.current,
         recentPanosRef.current,
       );
-      if (best?.heading != null) {
-        const aligned = normalizeDeg(best.heading);
-        pano.setPov({ heading: aligned, pitch: 0, zoom: 1 });
-        smoothedHeadingRef.current = aligned;
-        latestTargetHeadingRef.current = aligned;
-        latestTargetPitchRef.current = 0;
-      }
+        if (best?.heading != null) {
+          const aligned = normalizeDeg(best.heading);
+          setPanoramaPov(pano, { heading: aligned, pitch: 0, zoom: 1 });
+          smoothedHeadingRef.current = aligned;
+          latestTargetHeadingRef.current = aligned;
+          latestTargetPitchRef.current = 0;
+        }
 
       const onLinksReady = () => {
         const links = pano.getLinks ? (pano.getLinks() as Link[]) : undefined;
@@ -405,7 +437,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         if (best2?.heading != null) {
           const aligned = normalizeDeg(best2.heading);
           cancelOngoingAnimation();
-          pano.setPov({ heading: aligned, pitch: 0, zoom: 1 });
+          setPanoramaPov(pano, { heading: aligned, pitch: 0, zoom: 1 });
           smoothedHeadingRef.current = aligned;
           latestTargetHeadingRef.current = aligned;
           latestTargetPitchRef.current = 0;
@@ -417,7 +449,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       linksTimeout = setTimeout(onLinksReady, 0);
 
       const reassert = () => {
-        if (!lockForwardHeading) {
+        if (!lockForwardHeading && !isRiding) {
           return;
         }
 
@@ -430,14 +462,14 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
         if (drift > 2) {
           cancelOngoingAnimation();
-          panoramaInstance.setPov({ heading, pitch, zoom: 1 });
+          setPanoramaPov(panoramaInstance, { heading, pitch, zoom: 1 });
         }
       };
 
       listeners.push(panoramaInstance.addListener("pano_changed", reassert));
       listeners.push(panoramaInstance.addListener("position_changed", reassert));
 
-      if (lockForwardHeading) {
+      if (lockForwardHeading || isRiding) {
         reassert();
       }
     }
@@ -455,10 +487,13 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     apiKey,
     headingMode,
     isLoading,
+    isRiding,
     lockForwardHeading,
     reverseRoute,
     route.headings,
     routeLatLngs,
+    segmentBearings,
+    setPanoramaPov,
   ]);
 
   useEffect(() => {
@@ -556,14 +591,6 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     panorama.setPosition(position);
 
-    const forwardIndex = Math.min(totalPoints - 1, targetIndex + NEXT_POINT_OFFSET);
-    const fallbackIndex =
-      forwardIndex !== targetIndex
-        ? forwardIndex
-        : Math.max(0, targetIndex - NEXT_POINT_OFFSET);
-
-    const headingTargetPoint = routeLatLngs[fallbackIndex] ?? position;
-
     const hasStableHeadings =
       Array.isArray(route.headings) && route.headings.length === totalPoints;
 
@@ -572,21 +599,19 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       return reverseRoute ? normalizeDeg(360 - normalized) : normalized;
     };
 
-    let baseHeading: number;
-    let shouldApplyDirection = true;
+    let baseHeading: number | undefined;
     if (hasStableHeadings) {
       baseHeading = route.headings![targetIndex];
-    } else if (headingTargetPoint === position) {
-      const currentPov = panorama.getPov ? panorama.getPov() : undefined;
-      baseHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
-      shouldApplyDirection = false;
     } else {
-      baseHeading = bearing(position, headingTargetPoint);
+      baseHeading = segmentBearings[targetIndex];
     }
 
-    const targetHeadingRaw = shouldApplyDirection
-      ? applyDirection(baseHeading)
-      : normalizeDeg(baseHeading);
+    if (!Number.isFinite(baseHeading)) {
+      const currentPov = panorama.getPov ? panorama.getPov() : undefined;
+      baseHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
+    }
+
+    const targetHeadingRaw = applyDirection(baseHeading ?? 0);
 
     const previousHeading = smoothedHeadingRef.current ?? targetHeadingRaw;
     const deltaShortest = shortestDeltaDeg(previousHeading, targetHeadingRaw);
@@ -669,7 +694,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         ? 0
         : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, basePanMs);
 
-    const panMs = panoChanged ? 0 : panDurationMs;
+    const panMs = panDurationMs;
 
     const requiresHeadingUpdate = headingDelta >= 0.1 || pitchDelta >= 0.1;
 
@@ -677,7 +702,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       cancelOngoingAnimation();
     } else if (panMs <= STREET_VIEW_MIN_PAN_MS) {
       cancelOngoingAnimation();
-      panorama.setPov({ heading: targetHeading, pitch: targetPitch, zoom: 1 });
+      setPanoramaPov(panorama, { heading: targetHeading, pitch: targetPitch, zoom: 1 });
     } else {
       const currentPov = panorama.getPov
         ? panorama.getPov()
@@ -689,7 +714,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       const pitchDelta = Math.abs((currentPov.pitch ?? targetPitch) - targetPitch);
 
       if (headingDelta < 0.01 && pitchDelta < 0.01) {
-        panorama.setPov({ heading: effectiveHeading, pitch: targetPitch, zoom: 1 });
+        setPanoramaPov(panorama, { heading: effectiveHeading, pitch: targetPitch, zoom: 1 });
       } else {
         cancelOngoingAnimation();
         animStartRef.current = now;
@@ -727,7 +752,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           const nextPitch =
             startPitchRef.current + (targetPitchRef.current - startPitchRef.current) * eased;
 
-          panoramaInstance.setPov({ heading: nextHeading, pitch: nextPitch });
+          setPanoramaPov(panoramaInstance, { heading: nextHeading, pitch: nextPitch });
 
           if (t < 1) {
             rafIdRef.current = requestAnimationFrame(animate);
@@ -787,12 +812,66 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     reverseRoute,
     route.headings,
     routeLatLngs,
+    segmentBearings,
     streetViewPanMs,
     streetViewPointsPerStep,
     streetViewMetersPerStep,
     streetViewMinStepMs,
+    setPanoramaPov,
     usePointStep,
   ]);
+
+  useEffect(() => {
+    const panorama = panoramaRef.current;
+    const container = streetViewRef.current;
+
+    if (container) {
+      container.style.pointerEvents = isRiding ? "none" : "";
+    }
+
+    if (!panorama) {
+      return () => {
+        if (container) {
+          container.style.pointerEvents = "";
+        }
+      };
+    }
+
+    const listener = panorama.addListener("pov_changed", () => {
+      if (!isRiding || programmaticPovRef.current) {
+        return;
+      }
+
+      const currentPov = panorama.getPov ? panorama.getPov() : undefined;
+      if (!currentPov) {
+        return;
+      }
+
+      const heading = latestTargetHeadingRef.current;
+      const pitch = latestTargetPitchRef.current;
+      const headingDrift = Math.abs(shortestDeltaDeg(currentPov.heading ?? 0, heading));
+      const pitchDrift = Math.abs((currentPov.pitch ?? 0) - pitch);
+
+      if (headingDrift < 0.5 && pitchDrift < 0.5) {
+        return;
+      }
+
+      const zoom = panorama.getZoom ? panorama.getZoom() : undefined;
+      const pov: google.maps.StreetViewPov = { heading, pitch };
+      if (zoom != null) {
+        pov.zoom = zoom;
+      }
+
+      setPanoramaPov(panorama, pov);
+    });
+
+    return () => {
+      listener?.remove();
+      if (container) {
+        container.style.pointerEvents = "";
+      }
+    };
+  }, [isRiding, setPanoramaPov]);
 
   useEffect(() => {
     return () => {
