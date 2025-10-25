@@ -14,6 +14,7 @@ export class GoogleMapsManager {
   private mapsLoaded = false;
   private apiKey: string;
   private mapId?: string;
+  private loadPromise: Promise<void> | null = null;
 
   private constructor(config: GoogleMapsConfig) {
     this.apiKey = config.apiKey;
@@ -33,10 +34,16 @@ export class GoogleMapsManager {
   async loadGoogleMaps(): Promise<void> {
     if (this.mapsLoaded) return;
 
-    return new Promise((resolve, reject) => {
-      const existingAuthFailure = window.gm_authFailure;
+    if (this.loadPromise) {
+      return this.loadPromise;
+    }
 
-      const cleanup = () => {
+    this.loadPromise = new Promise((resolve, reject) => {
+      let script: HTMLScriptElement | null = null;
+      const existingAuthFailure = window.gm_authFailure;
+      const existingCallback = window.initGoogleMaps;
+
+      const restoreHandlers = () => {
         if (window.gm_authFailure === authFailureHandler) {
           if (existingAuthFailure) {
             window.gm_authFailure = existingAuthFailure;
@@ -44,10 +51,47 @@ export class GoogleMapsManager {
             delete window.gm_authFailure;
           }
         }
+
+        if (window.initGoogleMaps === initCallback) {
+          if (existingCallback) {
+            window.initGoogleMaps = existingCallback;
+          } else {
+            delete window.initGoogleMaps;
+          }
+        }
+      };
+
+      const finalizeLoad = () => {
+        if (this.mapsLoaded) {
+          restoreHandlers();
+          resolve();
+          return;
+        }
+
+        if (script) {
+          script.dataset.googleMapsLoaderStatus = 'loaded';
+        }
+
+        this.mapsLoaded = true;
+        restoreHandlers();
+        resolve();
       };
 
       const handleError = (message: string) => {
-        cleanup();
+        if (script) {
+          script.dataset.googleMapsLoaderStatus = 'error';
+          script.remove();
+          script = null;
+        }
+
+        restoreHandlers();
+        this.loadPromise = null;
+
+        if ('google' in window) {
+          // Remove the partial Google namespace so we can retry with a new key
+          delete (window as typeof window & { google?: any }).google;
+        }
+
         reject(new Error(message));
       };
 
@@ -63,20 +107,49 @@ export class GoogleMapsManager {
         );
       };
 
-      // Check if already loaded
-      if (window.google && window.google.maps) {
-        cleanup();
-        this.mapsLoaded = true;
-        resolve();
+      const initCallback = () => {
+        existingCallback?.();
+        finalizeLoad();
+      };
+
+      const hasLoadedGoogleMaps =
+        typeof window.google?.maps?.StreetViewPanorama === 'function';
+
+      if (hasLoadedGoogleMaps) {
+        finalizeLoad();
         return;
       }
 
-      // Create script element
-      const script = document.createElement('script');
+      const existingScriptElement = document.querySelector<HTMLScriptElement>(
+        'script[data-google-maps-loader="true"]',
+      );
+
+      if (existingScriptElement) {
+        const { googleMapsLoaderStatus } = existingScriptElement.dataset;
+
+        if (googleMapsLoaderStatus === 'loaded') {
+          script = existingScriptElement;
+          finalizeLoad();
+          return;
+        }
+
+        if (googleMapsLoaderStatus === 'loading') {
+          script = existingScriptElement;
+          window.initGoogleMaps = initCallback;
+          window.gm_authFailure = authFailureHandler;
+          return;
+        }
+
+        existingScriptElement.remove();
+      }
+
+      script = document.createElement('script');
       script.async = true;
       script.defer = true;
-      
-      // Build API URL
+      script.dataset.googleMapsLoader = 'true';
+      script.dataset.googleMapsLoaderStatus = 'loading';
+      script.dataset.googleMapsLoaderKey = this.apiKey;
+
       const params = new URLSearchParams({
         key: this.apiKey,
         libraries: 'geometry',
@@ -90,24 +163,22 @@ export class GoogleMapsManager {
       }
 
       script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
-      
-      // Set up callback
-      window.initGoogleMaps = () => {
-        this.mapsLoaded = true;
-        cleanup();
-        resolve();
-      };
 
+      window.initGoogleMaps = initCallback;
       window.gm_authFailure = authFailureHandler;
 
-      // Handle errors
       script.onerror = () => {
         handleError('Failed to load Google Maps API');
       };
 
-      // Add to document
       document.head.appendChild(script);
+    }).finally(() => {
+      if (!this.mapsLoaded) {
+        this.loadPromise = null;
+      }
     });
+
+    return this.loadPromise;
   }
 
   isLoaded(): boolean {
@@ -169,7 +240,7 @@ export class GoogleMapsManager {
 declare global {
   interface Window {
     initGoogleMaps: () => void;
-    google: any;
+    google?: any;
     gm_authFailure?: () => void;
   }
 }

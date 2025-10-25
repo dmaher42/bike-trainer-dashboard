@@ -191,7 +191,7 @@ declare const google: any;
 declare global {
   interface Window {
     initGoogleMaps: () => void;
-    google: typeof google;
+    google?: any;
     gm_authFailure?: () => void;
   }
 }
