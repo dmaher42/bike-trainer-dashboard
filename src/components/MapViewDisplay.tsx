@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { Route } from "../types";
+import { interpRoute } from "../utils/routeUtils";
 import { GoogleMapsManager } from "../utils/googleMapsUtils";
 
 interface MapViewDisplayProps {
@@ -83,18 +84,11 @@ export const MapViewDisplay: React.FC<MapViewDisplayProps> = ({
     }
 
     try {
-      const latLngs = route.pts.map((_, index) => {
-        const baseLat = 37.7749;
-        const baseLng = -122.4194;
-
-        const angle = (index / Math.max(route.pts.length, 1)) * 2 * Math.PI;
-        const radius = 0.01;
-
-        const lat = baseLat + radius * Math.cos(angle);
-        const lng = baseLng + radius * Math.sin(angle);
-
-        return new google.maps.LatLng(lat, lng);
-      });
+      const latLngs = route.pts
+        .filter(
+          (p) => typeof p.lat === "number" && (typeof p.lon === "number" || typeof p.lng === "number"),
+        )
+        .map((p) => new google.maps.LatLng(p.lat as number, (p.lon ?? p.lng) as number));
 
       setRouteLatLngs(latLngs);
     } catch (err) {
@@ -227,12 +221,29 @@ export const MapViewDisplay: React.FC<MapViewDisplayProps> = ({
       });
     }
 
-    const index = Math.floor(currentPosition * Math.max(routeLatLngs.length - 1, 0));
-    const clampedIndex = Math.min(Math.max(index, 0), routeLatLngs.length - 1);
-    const position = routeLatLngs[clampedIndex];
+    let position: google.maps.LatLng | null = null;
 
-    markerRef.current.setPosition(position);
-  }, [currentPosition, routeLatLngs, isMapInitialized]);
+    if (route.pts.length >= 2) {
+      try {
+        const p = interpRoute(route, currentPosition);
+        if (typeof p.lat === "number" && (typeof p.lon === "number" || typeof p.lng === "number")) {
+          position = new google.maps.LatLng(p.lat as number, (p.lon ?? p.lng) as number);
+        }
+      } catch (err) {
+        console.warn("Failed to interpolate route position", err);
+      }
+    }
+
+    if (!position) {
+      const index = Math.floor(currentPosition * Math.max(routeLatLngs.length - 1, 0));
+      const clampedIndex = Math.min(Math.max(index, 0), routeLatLngs.length - 1);
+      position = routeLatLngs[clampedIndex] ?? null;
+    }
+
+    if (position) {
+      markerRef.current.setPosition(position);
+    }
+  }, [currentPosition, route, routeLatLngs, isMapInitialized]);
 
   useEffect(() => {
     const map = mapRefInstance.current;
