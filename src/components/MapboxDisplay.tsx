@@ -3,7 +3,10 @@ import type { Feature, LineString } from "geojson";
 
 type MapboxDisplayProps = {
   accessToken: string;
-  route: { pts: Array<{ x: number; y: number }>; name?: string };
+  route: {
+    pts: Array<{ x: number; y: number; lat?: number; lon?: number; lng?: number }>;
+    name?: string;
+  };
   options: {
     showBuildings: boolean;
     showTraffic: boolean;
@@ -107,8 +110,14 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
 
   if (!initialPositionRef.current) {
     const firstPoint = route.pts[0];
+    const hasCoordinates =
+      firstPoint &&
+      typeof firstPoint.lat === "number" &&
+      (typeof firstPoint.lon === "number" || typeof firstPoint.lng === "number");
     initialPositionRef.current = {
-      center: firstPoint ? ([firstPoint.x, firstPoint.y] as [number, number]) : DEFAULT_CENTER,
+      center: hasCoordinates
+        ? ([(firstPoint.lon ?? firstPoint.lng) as number, firstPoint.lat as number] as [number, number])
+        : DEFAULT_CENTER,
       zoom: firstPoint ? DEFAULT_ZOOM : 2,
     };
   }
@@ -123,7 +132,11 @@ const MapboxDisplay = ({ accessToken, route, options }: MapboxDisplayProps) => {
       properties: route.name ? { name: route.name } : {},
       geometry: {
         type: "LineString",
-        coordinates: route.pts.map((pt) => [pt.x, pt.y] as [number, number]),
+        coordinates: route.pts
+          .filter(
+            (pt) => typeof pt.lat === "number" && (typeof pt.lon === "number" || typeof pt.lng === "number"),
+          )
+          .map((pt) => [(pt.lon ?? pt.lng) as number, pt.lat as number] as [number, number]),
       },
     };
   }, [route]);
