@@ -9,16 +9,11 @@ import type { Route } from "../types";
 import { GoogleMapsManager } from "../utils/googleMapsUtils";
 import { RouteToCoordinatesConverter } from "../utils/routeToCoordinatesConverter";
 import { useMapSettings } from "../hooks/useMapSettings";
-import {
-  STREET_VIEW_MAX_PAN_MS,
-  STREET_VIEW_MIN_PAN_MS,
-  STREET_VIEW_MIN_SMOOTH_PAN_MS,
-} from "../types/settings";
 
 const MIN_POINTS_FOR_STREET_VIEW = 2;
-const NEXT_POINT_OFFSET = 1;
-const MAX_TURN_PER_UPDATE = 20;
-const HEADING_EMA_ALPHA = 0.25;
+const DEFAULT_SAMPLE_DISTANCE_METERS = 200;
+const MIN_SAMPLE_COUNT = 5;
+const MAX_SAMPLE_COUNT = 15;
 const FALLBACK_VIRTUAL_ROUTE_ADDRESS = "Golden Gate Park, San Francisco, CA";
 
 interface StreetViewDisplayProps {
@@ -31,110 +26,159 @@ interface StreetViewDisplayProps {
   onError?: (error: string) => void;
 }
 
-const normalizeDeg = (deg: number) => {
-  let d = deg % 360;
-  if (d < 0) {
-    d += 360;
-  }
-  return d;
-};
-
-const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-const toDegrees = (radians: number) => (radians * 180) / Math.PI;
-
-const bearing = (a: google.maps.LatLngLiteral, b: google.maps.LatLngLiteral): number => {
-  const spherical = google?.maps?.geometry?.spherical;
-  if (spherical?.computeHeading) {
-    const computed = spherical.computeHeading(a, b);
-    return normalizeDeg(computed);
-  }
-
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-  const deltaLon = toRadians(b.lng - a.lng);
-
-  const y = Math.sin(deltaLon) * Math.cos(lat2);
-  const x =
-    Math.cos(lat1) * Math.sin(lat2) -
-    Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
-
-  const heading = toDegrees(Math.atan2(y, x));
-  return normalizeDeg(heading);
-};
-
-const shortestDeltaDeg = (from: number, to: number) => {
-  const a = normalizeDeg(from);
-  const b = normalizeDeg(to);
-  let d = b - a;
-  if (d > 180) {
-    d -= 360;
-  }
-  if (d < -180) {
-    d += 360;
-  }
-  return d;
-};
-
-type Link = google.maps.StreetViewLink & {
-  pano?: string;
-  heading?: number;
+interface PanoramaInfo {
+  panoId: string;
   description?: string;
+  latLng?: google.maps.LatLng | null;
+}
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const getCurrentPanoramaIndex = (progress: number, totalPanoramas: number) => {
+  if (totalPanoramas <= 0) {
+    return -1;
+  }
+  const clampedProgress = clamp(progress, 0, 1);
+  if (totalPanoramas === 1) {
+    return 0;
+  }
+  return Math.min(totalPanoramas - 1, Math.floor(clampedProgress * (totalPanoramas - 1)));
 };
 
-const chooseBestForwardLink = (
-  links: Link[] | null | undefined,
-  desiredHeading: number,
-  nextLat: number,
-  nextLng: number,
-  currentPanoId: string | null,
-  recent: string[],
-): Link | null => {
-  if (!links || links.length === 0) {
-    return null;
+const sampleRoutePoints = (
+  points: google.maps.LatLngLiteral[],
+  sampleDistanceMeters: number = DEFAULT_SAMPLE_DISTANCE_METERS,
+): google.maps.LatLng[] => {
+  if (!points.length) {
+    return [];
   }
 
-  void nextLat;
-  void nextLng;
+  const latLngs = points.map((point) => new google.maps.LatLng(point.lat, point.lng));
 
-  const recentFiltered = recent.filter(Boolean);
-  const candidates = links.filter((link) => {
-    if (!link) {
-      return false;
-    }
-    if (!link.pano) {
-      return false;
-    }
-    if (link.pano === currentPanoId) {
-      return false;
-    }
-    return !recentFiltered.includes(link.pano);
-  });
-
-  if (candidates.length === 0) {
-    return null;
+  if (latLngs.length === 1) {
+    return latLngs;
   }
 
-  let best: { link: Link; score: number } | null = null;
+  const spherical = google.maps.geometry?.spherical;
 
-  for (const link of candidates) {
-    const heading = normalizeDeg(link.heading ?? 0);
-    const angularDistance = Math.abs(shortestDeltaDeg(desiredHeading, heading));
-    const backPenalty = angularDistance > 120 ? 30 : 0;
-    const score = 0.7 * angularDistance + backPenalty;
+  if (!spherical?.computeDistanceBetween) {
+    const fallbackSamples: google.maps.LatLng[] = [];
+    const step = Math.max(1, Math.floor(points.length / Math.max(MIN_SAMPLE_COUNT, 1)));
 
-    if (!best || score < best.score) {
-      best = { link, score };
+    for (let i = 0; i < points.length; i += step) {
+      fallbackSamples.push(new google.maps.LatLng(points[i].lat, points[i].lng));
+      if (fallbackSamples.length >= MAX_SAMPLE_COUNT) {
+        break;
+      }
+    }
+
+    const lastFallback = fallbackSamples.at(-1);
+    const routeLast = latLngs.at(-1) as google.maps.LatLng;
+    if (!lastFallback || !lastFallback.equals(routeLast)) {
+      fallbackSamples.push(routeLast);
+    }
+
+    return fallbackSamples;
+  }
+
+  const cumulative: number[] = new Array(latLngs.length).fill(0);
+  for (let i = 1; i < latLngs.length; i += 1) {
+    cumulative[i] =
+      cumulative[i - 1] + spherical.computeDistanceBetween(latLngs[i - 1], latLngs[i]);
+  }
+
+  const totalDistance = cumulative[cumulative.length - 1];
+
+  if (totalDistance <= 0) {
+    return [latLngs[0], latLngs.at(-1) ?? latLngs[0]].filter(Boolean) as google.maps.LatLng[];
+  }
+
+  const approximateCount = clamp(
+    Math.round(totalDistance / sampleDistanceMeters) + 1,
+    MIN_SAMPLE_COUNT,
+    MAX_SAMPLE_COUNT,
+  );
+
+  const desiredCount = Math.min(approximateCount, latLngs.length);
+  if (desiredCount <= 1) {
+    return [latLngs[0]];
+  }
+
+  const samples: google.maps.LatLng[] = [];
+  const seen = new Set<string>();
+
+  const pushSample = (latLng: google.maps.LatLng) => {
+    const key = `${latLng.lat().toFixed(6)}:${latLng.lng().toFixed(6)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      samples.push(latLng);
+    }
+  };
+
+  for (let i = 0; i < desiredCount; i += 1) {
+    const targetDistance = (totalDistance * i) / (desiredCount - 1);
+    let targetIndex = cumulative.findIndex((value) => value >= targetDistance);
+    if (targetIndex === -1) {
+      targetIndex = cumulative.length - 1;
+    }
+    pushSample(latLngs[targetIndex]);
+    if (samples.length >= MAX_SAMPLE_COUNT) {
+      break;
     }
   }
 
-  return best ? best.link : null;
+  if (!samples.length) {
+    pushSample(latLngs[0]);
+  }
+  pushSample(latLngs.at(-1) as google.maps.LatLng);
+
+  return samples;
 };
 
-const easeInOutQuad = (t: number) => {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-};
+const preloadPanoramas = async (
+  samplePoints: google.maps.LatLng[],
+): Promise<PanoramaInfo[]> => {
+  if (!samplePoints.length) {
+    return [];
+  }
 
-const MIN_FRAME_DELTA = 1000 / 30;
+  const service = new google.maps.StreetViewService();
+  const panoramas: PanoramaInfo[] = [];
+  const seen = new Set<string>();
+
+  for (const point of samplePoints) {
+    // eslint-disable-next-line no-await-in-loop
+    const panorama = await new Promise<PanoramaInfo | null>((resolve) => {
+      service.getPanorama(
+        {
+          location: point,
+          radius: 150,
+          source: google.maps.StreetViewSource.OUTDOOR,
+        },
+        (data, status) => {
+          if (status === google.maps.StreetViewStatus.OK && data?.location?.pano) {
+            resolve({
+              panoId: data.location.pano,
+              description: data.location.description ?? undefined,
+              latLng: data.location.latLng ?? point,
+            });
+            return;
+          }
+
+          resolve(null);
+        },
+      );
+    });
+
+    if (panorama && !seen.has(panorama.panoId)) {
+      seen.add(panorama.panoId);
+      panoramas.push(panorama);
+    }
+  }
+
+  return panoramas;
+};
 
 export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   route,
@@ -145,48 +189,30 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   onLocationUpdate,
   onError,
 }) => {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isMapsLoading, setIsMapsLoading] = useState(false);
+  const [isPanoramaLoading, setIsPanoramaLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<string>("");
+  const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLngLiteral[]>([]);
+  const [panoramaSequence, setPanoramaSequence] = useState<PanoramaInfo[]>([]);
+  const [mapsReady, setMapsReady] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   const streetViewRef = useRef<HTMLDivElement | null>(null);
   const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
-  const lastIndexRef = useRef<number>(-1);
-  const lastAppliedIndexRef = useRef<number>(0);
-  const distanceSinceLastSVRef = useRef<number>(0);
-  const lastStepAtRef = useRef<number>(0);
-  const lastPanoIdRef = useRef<string | null>(null);
-  const recentPanosRef = useRef<string[]>([]);
-  const lastDistanceKmRef = useRef<number>(0);
-  const hasInitialisedRef = useRef(false);
   const mapsManagerRef = useRef<GoogleMapsManager | null>(null);
-  const warnedAboutTotalRef = useRef(false);
-  const rafIdRef = useRef<number | null>(null);
-  const animStartRef = useRef(0);
-  const startHeadingRef = useRef(0);
-  const startPitchRef = useRef(0);
-  const targetHeadingRef = useRef(0);
-  const targetPitchRef = useRef(0);
-  const lastFrameMsRef = useRef(0);
-  const smoothedHeadingRef = useRef<number | null>(null);
-  const latestTargetHeadingRef = useRef<number>(0);
-  const latestTargetPitchRef = useRef<number>(0);
-  const fixedHeadingRef = useRef<number | null>(null);
   const converterRef = useRef<RouteToCoordinatesConverter | null>(null);
+  const currentPanoramaIndexRef = useRef<number>(-1);
 
-  const {
-    usePointStep,
-    streetViewPointsPerStep,
-    streetViewPanMs,
-    streetViewMinStepMs,
-    lockForwardHeading,
-    streetViewMetersPerStep,
-    headingMode,
-    reverseRoute,
-  } = useMapSettings();
+  const { reverseRoute } = useMapSettings();
 
-  const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLngLiteral[]>([]);
+  const isLoading = isMapsLoading || isPanoramaLoading;
+
+  const resetStateForRoute = useCallback(() => {
+    setPanoramaSequence([]);
+    currentPanoramaIndexRef.current = -1;
+    setCurrentLocation("");
+  }, []);
 
   const convertRoutePoints = useCallback(async () => {
     if (!apiKey) {
@@ -197,56 +223,17 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       return [] as google.maps.LatLngLiteral[];
     }
 
-    let manager = mapsManagerRef.current;
-    if (!manager) {
-      manager = GoogleMapsManager.getInstance({ apiKey });
-      mapsManagerRef.current = manager;
-    }
-
-    await manager.loadGoogleMaps();
-
-    const pointsWithCoordinates = route.pts.filter(
+    const validPoints = route.pts.filter(
       (point) =>
         typeof point.lat === "number" &&
         (typeof point.lon === "number" || typeof point.lng === "number"),
     );
 
-    let basePoints: google.maps.LatLngLiteral[] = pointsWithCoordinates.map((point) => ({
-      lat: point.lat as number,
-      lng: (point.lon ?? point.lng) as number,
-    }));
-
-    if (basePoints.length < MIN_POINTS_FOR_STREET_VIEW) {
-      let converter = converterRef.current;
-      if (!converter) {
-        converter = new RouteToCoordinatesConverter(apiKey);
-        converterRef.current = converter;
-      }
-
-      const fallbackAddress = route.bounds
-        ? `${(route.bounds.minLat + route.bounds.maxLat) / 2}, ${(route.bounds.minLon + route.bounds.maxLon) / 2}`
-        : FALLBACK_VIRTUAL_ROUTE_ADDRESS;
-
-      try {
-        const converted = await converter.convertVirtualRouteToReal(route, fallbackAddress, 2);
-        basePoints = converted.pts
-          .filter(
-            (point) =>
-              typeof point.lat === "number" &&
-              (typeof point.lon === "number" || typeof point.lng === "number"),
-          )
-          .map((point) => ({
-            lat: point.lat as number,
-            lng: (point.lon ?? point.lng) as number,
-          }));
-      } catch (err) {
-        console.error("StreetViewDisplay: failed to convert virtual route", err);
-        return [] as google.maps.LatLngLiteral[];
-      }
-    }
-
-    if (basePoints.length < MIN_POINTS_FOR_STREET_VIEW) {
-      return basePoints;
+    if (validPoints.length >= MIN_POINTS_FOR_STREET_VIEW) {
+      return validPoints.map((point) => ({
+        lat: point.lat as number,
+        lng: (point.lon ?? point.lng) as number,
+      }));
     }
 
     let converter = converterRef.current;
@@ -255,44 +242,102 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       converterRef.current = converter;
     }
 
-    const adjustedPoints: google.maps.LatLngLiteral[] = [];
-    let lastLookupPoint: google.maps.LatLngLiteral | null = null;
-    const spherical = google.maps.geometry?.spherical;
+    const fallbackAddress = route.bounds
+      ? `${(route.bounds.minLat + route.bounds.maxLat) / 2}, ${(route.bounds.minLon + route.bounds.maxLon) / 2}`
+      : FALLBACK_VIRTUAL_ROUTE_ADDRESS;
 
-    for (const point of basePoints) {
-      let shouldLookup = !lastLookupPoint;
-
-      if (!shouldLookup && spherical?.computeDistanceBetween) {
-        const previousLatLng = new google.maps.LatLng(lastLookupPoint.lat, lastLookupPoint.lng);
-        const currentLatLng = new google.maps.LatLng(point.lat, point.lng);
-        const separation = spherical.computeDistanceBetween(previousLatLng, currentLatLng);
-        if (separation >= 20) {
-          shouldLookup = true;
-        }
-      }
-
-      if (shouldLookup) {
-        try {
-          const nearby = await converter.findNearbyStreetView(point, 75);
-          const resolved = nearby ?? point;
-          adjustedPoints.push(resolved);
-          lastLookupPoint = resolved;
-        } catch (err) {
-          console.warn("StreetViewDisplay: Street View lookup failed", err);
-          adjustedPoints.push(point);
-          lastLookupPoint = point;
-        }
-      } else {
-        adjustedPoints.push(point);
-      }
+    try {
+      const convertedRoute = await converter.convertVirtualRouteToReal(route, fallbackAddress, 2);
+      return convertedRoute.pts
+        .filter(
+          (point) =>
+            typeof point.lat === "number" &&
+            (typeof point.lon === "number" || typeof point.lng === "number"),
+        )
+        .map((point) => ({
+          lat: point.lat as number,
+          lng: (point.lon ?? point.lng) as number,
+        }));
+    } catch (err) {
+      console.error("StreetViewDisplay: failed to convert virtual route", err);
+      return [] as google.maps.LatLngLiteral[];
     }
-
-    return adjustedPoints;
   }, [apiKey, route]);
 
   useEffect(() => {
     if (!apiKey) {
+      setMapsReady(false);
+      mapsManagerRef.current = null;
+      panoramaRef.current = null;
       setRouteLatLngs([]);
+      resetStateForRoute();
+      setIsMapsLoading(false);
+      setIsPanoramaLoading(false);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsMapsLoading(true);
+    setError(null);
+
+    const initialise = async () => {
+      try {
+        const manager = GoogleMapsManager.getInstance({ apiKey });
+        mapsManagerRef.current = manager;
+        await manager.loadGoogleMaps();
+        if (cancelled) {
+          return;
+        }
+        setMapsReady(true);
+        setIsMapsLoading(false);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        const message = err instanceof Error ? err.message : "Failed to load Google Maps";
+        setError(message);
+        setIsMapsLoading(false);
+        setMapsReady(false);
+        onError?.(message);
+      }
+    };
+
+    void initialise();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, loadAttempt, onError, resetStateForRoute]);
+
+  useEffect(() => {
+    if (!mapsReady || !streetViewRef.current) {
+      return;
+    }
+
+    const options: google.maps.StreetViewPanoramaOptions = {
+      visible: false,
+      zoom: 1,
+      addressControl: false,
+      linksControl: false,
+      panControl: false,
+      zoomControl: false,
+      fullscreenControl: false,
+      motionTracking: false,
+      motionTrackingControl: false,
+    };
+
+    panoramaRef.current = new google.maps.StreetViewPanorama(streetViewRef.current, options);
+
+    return () => {
+      panoramaRef.current = null;
+    };
+  }, [mapsReady]);
+
+  useEffect(() => {
+    if (!mapsReady || !apiKey) {
+      setRouteLatLngs([]);
+      resetStateForRoute();
       return;
     }
 
@@ -308,6 +353,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         if (!cancelled) {
           console.error("StreetViewDisplay: unable to prepare Street View route", err);
           setRouteLatLngs([]);
+          resetStateForRoute();
           onError?.("Failed to prepare Street View route");
         }
       }
@@ -318,7 +364,81 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [apiKey, convertRoutePoints, onError]);
+  }, [apiKey, convertRoutePoints, mapsReady, onError, resetStateForRoute]);
+
+  useEffect(() => {
+    resetStateForRoute();
+    setError(null);
+  }, [route, resetStateForRoute]);
+
+  const sampledPoints = useMemo(() => {
+    if (!mapsReady || routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
+      return [] as google.maps.LatLng[];
+    }
+    return sampleRoutePoints(routeLatLngs);
+  }, [mapsReady, routeLatLngs]);
+
+  useEffect(() => {
+    if (!mapsReady) {
+      return;
+    }
+
+    if (!sampledPoints.length) {
+      setPanoramaSequence([]);
+      currentPanoramaIndexRef.current = -1;
+      setIsPanoramaLoading(false);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsPanoramaLoading(true);
+
+    const loadPanoramas = async () => {
+      try {
+        const panoramas = await preloadPanoramas(sampledPoints);
+        if (cancelled) {
+          return;
+        }
+
+        if (!panoramas.length) {
+          setError("No Street View imagery found along this route.");
+          onError?.("No Street View imagery found along this route.");
+        } else {
+          setError(null);
+        }
+
+        setPanoramaSequence(panoramas);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("StreetViewDisplay: failed to load panoramas", err);
+          const message = "Failed to load Street View imagery.";
+          setError(message);
+          onError?.(message);
+          setPanoramaSequence([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsPanoramaLoading(false);
+        }
+      }
+    };
+
+    void loadPanoramas();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapsReady, onError, sampledPoints]);
+
+  useEffect(() => {
+    if (!panoramaRef.current) {
+      return;
+    }
+
+    panoramaRef.current.setVisible(panoramaSequence.length > 0 && !error);
+    currentPanoramaIndexRef.current = -1;
+  }, [error, panoramaSequence]);
 
   const progress = useMemo(() => {
     const total = routeTotal > 0 ? routeTotal : route.total;
@@ -333,607 +453,48 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   }, [distance, route.total, routeTotal]);
 
   useEffect(() => {
-    if (routeTotal > 0) {
-      warnedAboutTotalRef.current = false;
+    if (!panoramaRef.current || !panoramaSequence.length) {
       return;
     }
 
-    if (!warnedAboutTotalRef.current) {
-      console.warn(
-        "StreetViewDisplay: route.total is zero or missing. Street View progress may be inaccurate.",
-      );
-      warnedAboutTotalRef.current = true;
-    }
-  }, [routeTotal]);
+    const effectiveProgress = reverseRoute ? 1 - progress.fraction : progress.fraction;
+    const targetIndex = getCurrentPanoramaIndex(effectiveProgress, panoramaSequence.length);
 
-  useEffect(() => {
-    if (!apiKey) {
-      setIsLoading(false);
-      setError(null);
-      setCurrentLocation("");
-      mapsManagerRef.current = null;
-      panoramaRef.current = null;
+    if (targetIndex < 0 || targetIndex === currentPanoramaIndexRef.current) {
       return;
     }
 
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-
-    const initialise = async () => {
-      try {
-        const manager = GoogleMapsManager.getInstance({ apiKey });
-        mapsManagerRef.current = manager;
-        await manager.loadGoogleMaps();
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      } catch (err) {
-        if (cancelled) {
-          return;
-        }
-        const message =
-          err instanceof Error ? err.message : "Failed to load Google Maps";
-        setError(message);
-        setIsLoading(false);
-        onError?.(message);
-      }
-    };
-
-    void initialise();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiKey, loadAttempt, onError]);
-
-  useEffect(() => {
-    lastIndexRef.current = -1;
-    lastAppliedIndexRef.current = 0;
-    smoothedHeadingRef.current = null;
-    lastStepAtRef.current = 0;
-    lastPanoIdRef.current = null;
-    recentPanosRef.current = [];
-    hasInitialisedRef.current = false;
-    distanceSinceLastSVRef.current = 0;
-    if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
-      setCurrentLocation("");
-    }
-  }, [routeLatLngs]);
-
-  useEffect(() => {
-    lastAppliedIndexRef.current = Math.max(0, lastAppliedIndexRef.current);
-    smoothedHeadingRef.current = null;
-    lastStepAtRef.current = 0;
-  }, [usePointStep, streetViewPointsPerStep]);
-
-  useEffect(() => {
-    distanceSinceLastSVRef.current = 0;
-    lastStepAtRef.current = 0;
-  }, [streetViewMetersPerStep, usePointStep]);
-
-  useEffect(() => {
-    distanceSinceLastSVRef.current = 0;
-    lastDistanceKmRef.current = Number.isFinite(distance) ? distance : 0;
-    lastStepAtRef.current = 0;
-  }, [routeLatLngs]);
-
-  useEffect(() => {
-    fixedHeadingRef.current = null;
-  }, [routeLatLngs, headingMode, reverseRoute]);
-
-  useEffect(() => {
-    if (routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW) {
-      return;
-    }
-
-    if (!streetViewRef.current) {
-      return;
-    }
-
-    const manager = mapsManagerRef.current;
-    if (!manager?.isLoaded()) {
-      return;
-    }
-
-    const hasStableHeadings =
-      Array.isArray(route.headings) && route.headings.length === routeLatLngs.length;
-    const baseInitialHeading = hasStableHeadings
-      ? route.headings![0]
-      : routeLatLngs.length > 1
-      ? bearing(routeLatLngs[0], routeLatLngs[1])
-      : 0;
-    const initialHeading = reverseRoute
-      ? normalizeDeg(360 - baseInitialHeading)
-      : baseInitialHeading;
-    smoothedHeadingRef.current = initialHeading;
-    if (headingMode === "fixed") {
-      fixedHeadingRef.current = initialHeading;
-    }
-    latestTargetHeadingRef.current = initialHeading;
-    latestTargetPitchRef.current = 0;
-
-    if (!panoramaRef.current) {
-      panoramaRef.current = new google.maps.StreetViewPanorama(
-        streetViewRef.current,
-        {
-          position: routeLatLngs[0],
-          pov: { heading: initialHeading, pitch: 0 },
-          zoom: 1,
-          visible: true,
-          addressControl: false,
-          linksControl: false,
-          panControl: false,
-          zoomControl: false,
-          fullscreenControl: false,
-          motionTracking: false,
-          motionTrackingControl: false,
-        },
-      );
-    } else {
-      panoramaRef.current.setPosition(routeLatLngs[0]);
-      panoramaRef.current.setPov({ heading: initialHeading, pitch: 0 });
-    }
-
-    const panoramaInstance = panoramaRef.current;
-    hasInitialisedRef.current = true;
-    lastAppliedIndexRef.current = 0;
-    distanceSinceLastSVRef.current = 0;
-    const initialNow =
-      typeof performance !== "undefined" ? performance.now() : Date.now();
-    lastStepAtRef.current = initialNow;
-    recentPanosRef.current = [];
-    const initialPanoId = panoramaInstance?.getPano ? panoramaInstance.getPano() : null;
-    lastPanoIdRef.current = initialPanoId ?? null;
-
-    const listeners: google.maps.MapsEventListener[] = [];
-    let linksTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    if (panoramaInstance) {
-      const cancelOngoingAnimation = () => {
-        if (rafIdRef.current != null) {
-          cancelAnimationFrame(rafIdRef.current);
-          rafIdRef.current = null;
-        }
-      };
-
-      const desiredForward = initialHeading;
-      const pano = panoramaInstance;
-      const immediateLinks = pano.getLinks ? (pano.getLinks() as Link[]) : undefined;
-      const best = chooseBestForwardLink(
-        immediateLinks,
-        desiredForward,
-        routeLatLngs[0].lat,
-        routeLatLngs[0].lng,
-        lastPanoIdRef.current,
-        recentPanosRef.current,
-      );
-      if (best?.heading != null) {
-        const aligned = normalizeDeg(best.heading);
-        pano.setPov({ heading: aligned, pitch: 0, zoom: 1 });
-        smoothedHeadingRef.current = aligned;
-        latestTargetHeadingRef.current = aligned;
-        latestTargetPitchRef.current = 0;
-      }
-
-      const onLinksReady = () => {
-        const links = pano.getLinks ? (pano.getLinks() as Link[]) : undefined;
-        const best2 = chooseBestForwardLink(
-          links,
-          desiredForward,
-          routeLatLngs[0].lat,
-          routeLatLngs[0].lng,
-          lastPanoIdRef.current,
-          recentPanosRef.current,
-        );
-        if (best2?.heading != null) {
-          const aligned = normalizeDeg(best2.heading);
-          cancelOngoingAnimation();
-          pano.setPov({ heading: aligned, pitch: 0, zoom: 1 });
-          smoothedHeadingRef.current = aligned;
-          latestTargetHeadingRef.current = aligned;
-          latestTargetPitchRef.current = 0;
-        }
-      };
-
-      const linksListener = pano.addListener("links_changed", onLinksReady);
-      listeners.push(linksListener);
-      linksTimeout = setTimeout(onLinksReady, 0);
-
-      const reassert = () => {
-        if (!lockForwardHeading) {
-          return;
-        }
-
-        const heading = latestTargetHeadingRef.current;
-        const pitch = latestTargetPitchRef.current;
-        const currentPov = panoramaInstance.getPov ? panoramaInstance.getPov() : undefined;
-        const drift = currentPov
-          ? Math.abs(shortestDeltaDeg(currentPov.heading ?? 0, heading))
-          : 999;
-
-        if (drift > 2) {
-          cancelOngoingAnimation();
-          panoramaInstance.setPov({ heading, pitch, zoom: 1 });
-        }
-      };
-
-      listeners.push(panoramaInstance.addListener("pano_changed", reassert));
-      listeners.push(panoramaInstance.addListener("position_changed", reassert));
-
-      if (lockForwardHeading) {
-        reassert();
-      }
-    }
-
-    return () => {
-      if (linksTimeout != null) {
-        clearTimeout(linksTimeout);
-      }
-      while (listeners.length) {
-        const listener = listeners.pop();
-        listener?.remove();
-      }
-    };
-  }, [
-    apiKey,
-    headingMode,
-    isLoading,
-    lockForwardHeading,
-    reverseRoute,
-    route.headings,
-    routeLatLngs,
-  ]);
-
-  useEffect(() => {
-    const panorama = panoramaRef.current;
-    if (!panorama) {
-      return;
-    }
-
-    const totalPoints = routeLatLngs.length;
-    if (totalPoints < MIN_POINTS_FOR_STREET_VIEW) {
-      panorama.setVisible(false);
-      return;
-    }
-
-    panorama.setVisible(true);
-
-    if (!hasInitialisedRef.current) {
-      return;
-    }
-
-    const currentDistanceKm = Number.isFinite(distance) ? distance : 0;
-    const previousDistanceKm = lastDistanceKmRef.current ?? currentDistanceKm;
-
-    if (!usePointStep && currentDistanceKm + 1e-6 < previousDistanceKm) {
-      lastAppliedIndexRef.current = 0;
-      distanceSinceLastSVRef.current = 0;
-      lastStepAtRef.current = 0;
-      recentPanosRef.current = [];
-      smoothedHeadingRef.current = null;
-      fixedHeadingRef.current = null;
-    }
-
-    const deltaKm = Math.max(0, currentDistanceKm - previousDistanceKm);
-    lastDistanceKmRef.current = currentDistanceKm;
-
-    if (!usePointStep) {
-      distanceSinceLastSVRef.current += deltaKm * 1000;
-    }
-
-    const totalSegments = Math.max(1, totalPoints - 1);
-    const rawIndex = Math.floor(progress.fraction * totalSegments);
-    const clampedRawIndex = Math.max(0, Math.min(totalSegments, rawIndex));
-
-    const previousAppliedIndex = lastAppliedIndexRef.current;
-    const monotonicIndex = Math.min(
-      totalSegments,
-      Math.max(previousAppliedIndex + 1, clampedRawIndex),
-    );
-
-    const now =
-      typeof performance !== "undefined" ? performance.now() : Date.now();
-    if (previousAppliedIndex === 0 && lastStepAtRef.current === 0) {
-      lastStepAtRef.current = now;
-    }
-
-    const timeSinceLastStep = now - lastStepAtRef.current;
-
-    let nextIndex = previousAppliedIndex;
-    let shouldAdvance = false;
-
-    if (usePointStep) {
-      const requiredStep = Math.max(1, streetViewPointsPerStep);
-      if (
-        monotonicIndex > previousAppliedIndex &&
-        monotonicIndex - previousAppliedIndex >= requiredStep &&
-        timeSinceLastStep >= streetViewMinStepMs
-      ) {
-        nextIndex = monotonicIndex;
-        shouldAdvance = true;
-      }
-    } else {
-      const metersPerStep = Math.max(3, Math.min(50, streetViewMetersPerStep ?? 15));
-      if (
-        monotonicIndex > previousAppliedIndex &&
-        distanceSinceLastSVRef.current >= metersPerStep &&
-        timeSinceLastStep >= streetViewMinStepMs
-      ) {
-        nextIndex = monotonicIndex;
-        shouldAdvance = true;
-      }
-    }
-
-    if (!shouldAdvance) {
-      return;
-    }
-
-    distanceSinceLastSVRef.current = 0;
-    lastStepAtRef.current = now;
-
-    const targetIndex = nextIndex;
-    const position = routeLatLngs[targetIndex];
-    if (!position) {
-      return;
-    }
-
-    panorama.setPosition(position);
-
-    const forwardIndex = Math.min(totalPoints - 1, targetIndex + NEXT_POINT_OFFSET);
-    const fallbackIndex =
-      forwardIndex !== targetIndex
-        ? forwardIndex
-        : Math.max(0, targetIndex - NEXT_POINT_OFFSET);
-
-    const headingTargetPoint = routeLatLngs[fallbackIndex] ?? position;
-
-    const hasStableHeadings =
-      Array.isArray(route.headings) && route.headings.length === totalPoints;
-
-    const applyDirection = (heading: number) => {
-      const normalized = normalizeDeg(heading);
-      return reverseRoute ? normalizeDeg(360 - normalized) : normalized;
-    };
-
-    let baseHeading: number;
-    let shouldApplyDirection = true;
-    if (hasStableHeadings) {
-      baseHeading = route.headings![targetIndex];
-    } else if (headingTargetPoint === position) {
-      const currentPov = panorama.getPov ? panorama.getPov() : undefined;
-      baseHeading = currentPov?.heading ?? smoothedHeadingRef.current ?? 0;
-      shouldApplyDirection = false;
-    } else {
-      baseHeading = bearing(position, headingTargetPoint);
-    }
-
-    const targetHeadingRaw = shouldApplyDirection
-      ? applyDirection(baseHeading)
-      : normalizeDeg(baseHeading);
-
-    const previousHeading = smoothedHeadingRef.current ?? targetHeadingRaw;
-    const deltaShortest = shortestDeltaDeg(previousHeading, targetHeadingRaw);
-    const clampedDelta = Math.max(
-      -MAX_TURN_PER_UPDATE,
-      Math.min(MAX_TURN_PER_UPDATE, deltaShortest),
-    );
-    const clampedHeading = normalizeDeg(previousHeading + clampedDelta);
-    const smoothedHeading = normalizeDeg(
-      previousHeading +
-        HEADING_EMA_ALPHA * shortestDeltaDeg(previousHeading, clampedHeading),
-    );
-
-    let forwardHeading = smoothedHeading;
-
-    if (headingMode === "fixed") {
-      if (fixedHeadingRef.current == null) {
-        fixedHeadingRef.current = forwardHeading;
-      }
-    } else {
-      fixedHeadingRef.current = null;
-    }
-
-    let effectiveHeading =
-      headingMode === "fixed"
-        ? fixedHeadingRef.current ?? forwardHeading
-        : forwardHeading;
-
-    const targetPitch = 0;
-
-    smoothedHeadingRef.current = forwardHeading;
-
-    if (headingMode === "fixed") {
-      effectiveHeading = fixedHeadingRef.current ?? effectiveHeading;
-    }
-
-    const targetHeading = effectiveHeading;
-
-    const previousPanoId = lastPanoIdRef.current;
-    const currentPov = panorama.getPov ? panorama.getPov() : undefined;
-    const currentHeading = currentPov?.heading ?? targetHeading;
-    const headingDelta = Math.abs(shortestDeltaDeg(currentHeading, targetHeading));
-    const currentPitch = currentPov?.pitch ?? targetPitch;
-    const pitchDelta = Math.abs(currentPitch - targetPitch);
-
-    const currentZoom =
-      typeof panorama.getZoom === "function" ? panorama.getZoom() : undefined;
-    if (
-      currentZoom == null ||
-      !Number.isFinite(currentZoom) ||
-      Math.abs(currentZoom - 1) > 1e-3
-    ) {
-      panorama.setZoom(1);
-    }
-
-    const newPanoId = panorama.getPano ? panorama.getPano() : null;
-    const panoChanged = newPanoId != null && newPanoId !== previousPanoId;
-
-    latestTargetHeadingRef.current = targetHeading;
-    latestTargetPitchRef.current = targetPitch;
-
-    const cancelOngoingAnimation = () => {
-      if (rafIdRef.current != null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
-
-    const rawPanMs = Number.isFinite(streetViewPanMs)
-      ? Math.min(
-          STREET_VIEW_MAX_PAN_MS,
-          Math.max(STREET_VIEW_MIN_PAN_MS, Math.trunc(streetViewPanMs ?? 0)),
-        )
-      : 0;
-
-    const basePanMs = headingMode === "fixed" ? 0 : rawPanMs;
-
-    const panDurationMs =
-      basePanMs <= STREET_VIEW_MIN_PAN_MS
-        ? 0
-        : Math.max(STREET_VIEW_MIN_SMOOTH_PAN_MS, basePanMs);
-
-    const panMs = panoChanged ? 0 : panDurationMs;
-
-    const requiresHeadingUpdate = headingDelta >= 0.1 || pitchDelta >= 0.1;
-
-    if (!requiresHeadingUpdate) {
-      cancelOngoingAnimation();
-    } else if (panMs <= STREET_VIEW_MIN_PAN_MS) {
-      cancelOngoingAnimation();
-      panorama.setPov({ heading: targetHeading, pitch: targetPitch, zoom: 1 });
-    } else {
-      const currentPov = panorama.getPov
-        ? panorama.getPov()
-        : { heading: effectiveHeading, pitch: targetPitch, zoom: 1 };
-
-      const headingDelta = Math.abs(
-        shortestDeltaDeg(currentPov.heading ?? effectiveHeading, effectiveHeading),
-      );
-      const pitchDelta = Math.abs((currentPov.pitch ?? targetPitch) - targetPitch);
-
-      if (headingDelta < 0.01 && pitchDelta < 0.01) {
-        panorama.setPov({ heading: effectiveHeading, pitch: targetPitch, zoom: 1 });
-      } else {
-        cancelOngoingAnimation();
-        animStartRef.current = now;
-        lastFrameMsRef.current = 0;
-        startHeadingRef.current = currentPov.heading ?? effectiveHeading;
-        startPitchRef.current = currentPov.pitch ?? targetPitch;
-        targetHeadingRef.current = effectiveHeading;
-        targetPitchRef.current = targetPitch;
-
-        const duration = panMs;
-
-        const animate = (time: number) => {
-          const panoramaInstance = panoramaRef.current;
-          if (!panoramaInstance) {
-            rafIdRef.current = null;
-            return;
-          }
-
-          if (lastFrameMsRef.current && time - lastFrameMsRef.current < MIN_FRAME_DELTA) {
-            rafIdRef.current = requestAnimationFrame(animate);
-            return;
-          }
-
-          lastFrameMsRef.current = time;
-
-          const elapsed = time - animStartRef.current;
-          const t = duration > 0 ? Math.min(1, elapsed / duration) : 1;
-          const eased = easeInOutQuad(t);
-
-          const deltaHeading = shortestDeltaDeg(
-            startHeadingRef.current,
-            targetHeadingRef.current,
-          );
-          const nextHeading = normalizeDeg(startHeadingRef.current + deltaHeading * eased);
-          const nextPitch =
-            startPitchRef.current + (targetPitchRef.current - startPitchRef.current) * eased;
-
-          panoramaInstance.setPov({ heading: nextHeading, pitch: nextPitch });
-
-          if (t < 1) {
-            rafIdRef.current = requestAnimationFrame(animate);
-          } else {
-            rafIdRef.current = null;
-          }
-        };
-
-        rafIdRef.current = requestAnimationFrame(animate);
-      }
-    }
-
-    if (panoChanged) {
-      if (previousPanoId) {
-        if (recentPanosRef.current.length > 2) {
-          recentPanosRef.current.shift();
-        }
-        recentPanosRef.current.push(previousPanoId);
-      }
-      lastPanoIdRef.current = newPanoId ?? null;
-    }
-
-    lastAppliedIndexRef.current = targetIndex;
-
-    const manager = mapsManagerRef.current;
-    if (manager?.isLoaded() && lastIndexRef.current !== targetIndex) {
-      lastIndexRef.current = targetIndex;
-      let cancelled = false;
-      const latLng = new google.maps.LatLng(position.lat, position.lng);
-
-      manager
-        .reverseGeocode(latLng)
-        .then((location) => {
-          if (cancelled) {
-            return;
-          }
-          setCurrentLocation(location);
-          onLocationUpdate?.(location);
-        })
-        .catch((err) => {
-          if (!cancelled) {
-            console.warn("Failed to get location name:", err);
-          }
-        });
-
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    return undefined;
-  }, [
-    distance,
-    headingMode,
-    onLocationUpdate,
-    progress.fraction,
-    reverseRoute,
-    route.headings,
-    routeLatLngs,
-    streetViewPanMs,
-    streetViewPointsPerStep,
-    streetViewMetersPerStep,
-    streetViewMinStepMs,
-    usePointStep,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      if (rafIdRef.current != null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
-  }, []);
+    const targetPanorama = panoramaSequence[targetIndex];
+
+    panoramaRef.current.setPano(targetPanorama.panoId);
+    panoramaRef.current.setPov({ heading: 0, pitch: 0 });
+    panoramaRef.current.setZoom(1);
+    panoramaRef.current.setVisible(true);
+
+    currentPanoramaIndexRef.current = targetIndex;
+
+    const locationLabel =
+      targetPanorama.description?.trim() && targetPanorama.description.trim().length > 0
+        ? targetPanorama.description.trim()
+        : targetPanorama.latLng
+        ? `${targetPanorama.latLng.lat().toFixed(4)}, ${targetPanorama.latLng.lng().toFixed(4)}`
+        : "Street View";
+
+    setCurrentLocation(locationLabel);
+    onLocationUpdate?.(locationLabel);
+  }, [onLocationUpdate, panoramaSequence, progress.fraction, reverseRoute]);
 
   const handleRetry = useCallback(() => {
     if (!apiKey) {
       return;
     }
+
     setError(null);
+    setMapsReady(false);
+    setRouteLatLngs([]);
+    resetStateForRoute();
     setLoadAttempt((attempt) => attempt + 1);
-  }, [apiKey]);
+  }, [apiKey, resetStateForRoute]);
 
   const missingApiKey = !apiKey;
   const insufficientGeo = routeLatLngs.length < MIN_POINTS_FOR_STREET_VIEW;
@@ -943,9 +504,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-dark-200">Street View</h3>
         {currentLocation && (
-          <div className="text-sm text-dark-400 max-w-xs truncate">
-            {currentLocation}
-          </div>
+          <div className="text-sm text-dark-400 max-w-xs truncate">{currentLocation}</div>
         )}
       </div>
 
@@ -959,7 +518,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           </div>
         )}
 
-        {error && (
+        {error && !missingApiKey && (
           <div className="absolute inset-0 flex items-center justify-center bg-dark-900/80 z-20">
             <div className="text-center p-4 max-w-md">
               <div className="text-danger-400 mb-2">
@@ -1008,10 +567,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
         <div
           ref={streetViewRef}
           className="w-full h-full"
-          style={{
-            display:
-              missingApiKey || insufficientGeo || error ? "none" : "block",
-          }}
+          style={{ display: missingApiKey || insufficientGeo ? "none" : "block" }}
         />
       </div>
 
@@ -1027,11 +583,10 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
         <div className="text-dark-400">
           Position:
-          {routeLatLngs.length >= MIN_POINTS_FOR_STREET_VIEW
-            ? ` ${progress.percent}%`
-            : " --"}
+          {panoramaSequence.length > 0 ? ` ${progress.percent}%` : " --"}
         </div>
       </div>
     </div>
   );
 };
+
