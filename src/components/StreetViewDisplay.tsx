@@ -31,6 +31,11 @@ interface StreetViewDisplayProps {
   onError?: (error: string) => void;
 }
 
+interface PreparedRoutePoints {
+  initialPoints: google.maps.LatLngLiteral[];
+  refinedPointsPromise?: Promise<google.maps.LatLngLiteral[]>;
+}
+
 const normalizeDeg = (deg: number) => {
   let d = deg % 360;
   if (d < 0) {
@@ -188,13 +193,13 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
   const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLngLiteral[]>([]);
 
-  const convertRoutePoints = useCallback(async () => {
+  const convertRoutePoints = useCallback(async (): Promise<PreparedRoutePoints> => {
     if (!apiKey) {
-      return [] as google.maps.LatLngLiteral[];
+      return { initialPoints: [] };
     }
 
     if (!route?.pts?.length) {
-      return [] as google.maps.LatLngLiteral[];
+      return { initialPoints: [] };
     }
 
     let manager = mapsManagerRef.current;
@@ -241,12 +246,12 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
           }));
       } catch (err) {
         console.error("StreetViewDisplay: failed to convert virtual route", err);
-        return [] as google.maps.LatLngLiteral[];
+        return { initialPoints: [] };
       }
     }
 
     if (basePoints.length < MIN_POINTS_FOR_STREET_VIEW) {
-      return basePoints;
+      return { initialPoints: basePoints };
     }
 
     let converter = converterRef.current;
@@ -255,39 +260,46 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
       converterRef.current = converter;
     }
 
-    const adjustedPoints: google.maps.LatLngLiteral[] = [];
-    let lastLookupPoint: google.maps.LatLngLiteral | null = null;
-    const spherical = google.maps.geometry?.spherical;
+    const refinedPointsPromise = (async () => {
+      const adjustedPoints: google.maps.LatLngLiteral[] = [];
+      let lastLookupPoint: google.maps.LatLngLiteral | null = null;
+      const spherical = google.maps.geometry?.spherical;
 
-    for (const point of basePoints) {
-      let shouldLookup = !lastLookupPoint;
+      for (const point of basePoints) {
+        let shouldLookup = !lastLookupPoint;
 
-      if (!shouldLookup && spherical?.computeDistanceBetween) {
-        const previousLatLng = new google.maps.LatLng(lastLookupPoint.lat, lastLookupPoint.lng);
-        const currentLatLng = new google.maps.LatLng(point.lat, point.lng);
-        const separation = spherical.computeDistanceBetween(previousLatLng, currentLatLng);
-        if (separation >= 20) {
-          shouldLookup = true;
+        if (!shouldLookup && spherical?.computeDistanceBetween) {
+          const previousLatLng = new google.maps.LatLng(lastLookupPoint.lat, lastLookupPoint.lng);
+          const currentLatLng = new google.maps.LatLng(point.lat, point.lng);
+          const separation = spherical.computeDistanceBetween(previousLatLng, currentLatLng);
+          if (separation >= 20) {
+            shouldLookup = true;
+          }
         }
-      }
 
-      if (shouldLookup) {
-        try {
-          const nearby = await converter.findNearbyStreetView(point, 75);
-          const resolved = nearby ?? point;
-          adjustedPoints.push(resolved);
-          lastLookupPoint = resolved;
-        } catch (err) {
-          console.warn("StreetViewDisplay: Street View lookup failed", err);
+        if (shouldLookup) {
+          try {
+            const nearby = await converter!.findNearbyStreetView(point, 75);
+            const resolved = nearby ?? point;
+            adjustedPoints.push(resolved);
+            lastLookupPoint = resolved;
+          } catch (err) {
+            console.warn("StreetViewDisplay: Street View lookup failed", err);
+            adjustedPoints.push(point);
+            lastLookupPoint = point;
+          }
+        } else {
           adjustedPoints.push(point);
-          lastLookupPoint = point;
         }
-      } else {
-        adjustedPoints.push(point);
       }
-    }
 
-    return adjustedPoints;
+      return adjustedPoints;
+    })().catch((err) => {
+      console.warn("StreetViewDisplay: Street View refinement failed", err);
+      return basePoints;
+    });
+
+    return { initialPoints: basePoints, refinedPointsPromise };
   }, [apiKey, route]);
 
   useEffect(() => {
@@ -300,9 +312,17 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
 
     const prepareRoute = async () => {
       try {
-        const points = await convertRoutePoints();
+        const { initialPoints, refinedPointsPromise } = await convertRoutePoints();
         if (!cancelled) {
-          setRouteLatLngs(points);
+          setRouteLatLngs(initialPoints);
+        }
+
+        if (refinedPointsPromise) {
+          void refinedPointsPromise.then((refinedPoints) => {
+            if (!cancelled) {
+              setRouteLatLngs(refinedPoints);
+            }
+          });
         }
       } catch (err) {
         if (!cancelled) {
