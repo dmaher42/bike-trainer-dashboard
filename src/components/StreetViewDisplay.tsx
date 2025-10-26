@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import type { Route } from "../types";
 import { GoogleMapsManager } from "../utils/googleMapsUtils";
+import { RouteToCoordinatesConverter } from "../utils/routeToCoordinatesConverter";
 import { useMapSettings } from "../hooks/useMapSettings";
 import {
   STREET_VIEW_MAX_PAN_MS,
@@ -18,6 +19,7 @@ const MIN_POINTS_FOR_STREET_VIEW = 2;
 const NEXT_POINT_OFFSET = 1;
 const MAX_TURN_PER_UPDATE = 20;
 const HEADING_EMA_ALPHA = 0.25;
+const FALLBACK_VIRTUAL_ROUTE_ADDRESS = "Golden Gate Park, San Francisco, CA";
 
 interface StreetViewDisplayProps {
   route: Route;
@@ -171,6 +173,7 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
   const latestTargetHeadingRef = useRef<number>(0);
   const latestTargetPitchRef = useRef<number>(0);
   const fixedHeadingRef = useRef<number | null>(null);
+  const converterRef = useRef<RouteToCoordinatesConverter | null>(null);
 
   const {
     usePointStep,
@@ -183,18 +186,139 @@ export const StreetViewDisplay: React.FC<StreetViewDisplayProps> = ({
     reverseRoute,
   } = useMapSettings();
 
-  const routeLatLngs = useMemo(() => {
-    return route.pts
-      .filter(
-        (point) =>
-          typeof point.lat === "number" &&
-          (typeof point.lon === "number" || typeof point.lng === "number"),
-      )
-      .map((point) => ({
-        lat: point.lat as number,
-        lng: (point.lon ?? point.lng) as number,
-      }));
-  }, [route.pts]);
+  const [routeLatLngs, setRouteLatLngs] = useState<google.maps.LatLngLiteral[]>([]);
+
+  const convertRoutePoints = useCallback(async () => {
+    if (!apiKey) {
+      return [] as google.maps.LatLngLiteral[];
+    }
+
+    if (!route?.pts?.length) {
+      return [] as google.maps.LatLngLiteral[];
+    }
+
+    let manager = mapsManagerRef.current;
+    if (!manager) {
+      manager = GoogleMapsManager.getInstance({ apiKey });
+      mapsManagerRef.current = manager;
+    }
+
+    await manager.loadGoogleMaps();
+
+    const pointsWithCoordinates = route.pts.filter(
+      (point) =>
+        typeof point.lat === "number" &&
+        (typeof point.lon === "number" || typeof point.lng === "number"),
+    );
+
+    let basePoints: google.maps.LatLngLiteral[] = pointsWithCoordinates.map((point) => ({
+      lat: point.lat as number,
+      lng: (point.lon ?? point.lng) as number,
+    }));
+
+    if (basePoints.length < MIN_POINTS_FOR_STREET_VIEW) {
+      let converter = converterRef.current;
+      if (!converter) {
+        converter = new RouteToCoordinatesConverter(apiKey);
+        converterRef.current = converter;
+      }
+
+      const fallbackAddress = route.bounds
+        ? `${(route.bounds.minLat + route.bounds.maxLat) / 2}, ${(route.bounds.minLon + route.bounds.maxLon) / 2}`
+        : FALLBACK_VIRTUAL_ROUTE_ADDRESS;
+
+      try {
+        const converted = await converter.convertVirtualRouteToReal(route, fallbackAddress, 2);
+        basePoints = converted.pts
+          .filter(
+            (point) =>
+              typeof point.lat === "number" &&
+              (typeof point.lon === "number" || typeof point.lng === "number"),
+          )
+          .map((point) => ({
+            lat: point.lat as number,
+            lng: (point.lon ?? point.lng) as number,
+          }));
+      } catch (err) {
+        console.error("StreetViewDisplay: failed to convert virtual route", err);
+        return [] as google.maps.LatLngLiteral[];
+      }
+    }
+
+    if (basePoints.length < MIN_POINTS_FOR_STREET_VIEW) {
+      return basePoints;
+    }
+
+    let converter = converterRef.current;
+    if (!converter) {
+      converter = new RouteToCoordinatesConverter(apiKey);
+      converterRef.current = converter;
+    }
+
+    const adjustedPoints: google.maps.LatLngLiteral[] = [];
+    let lastLookupPoint: google.maps.LatLngLiteral | null = null;
+    const spherical = google.maps.geometry?.spherical;
+
+    for (const point of basePoints) {
+      let shouldLookup = !lastLookupPoint;
+
+      if (!shouldLookup && spherical?.computeDistanceBetween) {
+        const previousLatLng = new google.maps.LatLng(lastLookupPoint.lat, lastLookupPoint.lng);
+        const currentLatLng = new google.maps.LatLng(point.lat, point.lng);
+        const separation = spherical.computeDistanceBetween(previousLatLng, currentLatLng);
+        if (separation >= 20) {
+          shouldLookup = true;
+        }
+      }
+
+      if (shouldLookup) {
+        try {
+          const nearby = await converter.findNearbyStreetView(point, 75);
+          const resolved = nearby ?? point;
+          adjustedPoints.push(resolved);
+          lastLookupPoint = resolved;
+        } catch (err) {
+          console.warn("StreetViewDisplay: Street View lookup failed", err);
+          adjustedPoints.push(point);
+          lastLookupPoint = point;
+        }
+      } else {
+        adjustedPoints.push(point);
+      }
+    }
+
+    return adjustedPoints;
+  }, [apiKey, route]);
+
+  useEffect(() => {
+    if (!apiKey) {
+      setRouteLatLngs([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const prepareRoute = async () => {
+      try {
+        const points = await convertRoutePoints();
+        if (!cancelled) {
+          setRouteLatLngs(points);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("StreetViewDisplay: unable to prepare Street View route", err);
+          setRouteLatLngs([]);
+          onError?.("Failed to prepare Street View route");
+        }
+      }
+    };
+
+    void prepareRoute();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, convertRoutePoints, onError]);
 
   const progress = useMemo(() => {
     const total = routeTotal > 0 ? routeTotal : route.total;
