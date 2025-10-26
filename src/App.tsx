@@ -10,6 +10,7 @@ import { Metric } from "./components/Metric";
 import VirtualMap from "./components/VirtualMap";
 import MapboxDisplay from "./components/MapboxDisplay";
 import { StreetViewDisplay } from "./components/StreetViewDisplay";
+import ElevationProfile from "./components/ElevationProfile";
 import WorkoutPanel from "./components/WorkoutPanel";
 import EnvDiagnostics from "./components/EnvDiagnostics";
 import BluetoothConnectPanel from "./components/BluetoothConnectPanel";
@@ -302,6 +303,20 @@ function App() {
     };
   }, [route]);
 
+  const routeDistanceKm = routeStats.totalKm;
+  const routeProgress = useMemo(() => {
+    if (!Number.isFinite(routeDistanceKm) || routeDistanceKm <= 0) {
+      return 0;
+    }
+
+    const ratio = metrics.distance / routeDistanceKm;
+    if (!Number.isFinite(ratio)) {
+      return 0;
+    }
+
+    return Math.min(Math.max(ratio, 0), 1);
+  }, [metrics.distance, routeDistanceKm]);
+
   const viewRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -519,14 +534,23 @@ function App() {
             <h3 className="sr-only">{VIEW_TITLES[activeView]}</h3>
             {activeView === "virtual" && <VirtualMap route={route} metrics={metrics} showRouteInfo />}
             {activeView === "street" && (
-              <StreetViewDisplay
-                route={route}
-                distance={metrics.distance}
-                routeTotal={route.total}
-                isRiding={rideOn}
-                apiKey={googleMapsApiKey}
-                onError={(message) => console.error(message)}
-              />
+              <>
+                <StreetViewDisplay
+                  route={route}
+                  distance={metrics.distance}
+                  routeTotal={route.total}
+                  isRiding={rideOn}
+                  apiKey={googleMapsApiKey}
+                  onError={(message) => console.error(message)}
+                />
+                {routeStats.hasElevation && routeDistanceKm > 0 && (
+                  <ElevationProfile
+                    route={route}
+                    currentProgress={routeProgress}
+                    totalDistance={routeDistanceKm}
+                  />
+                )}
+              </>
             )}
             {activeView === "mapbox" && mapboxApiKey && (
               <div className="relative h-[60vh] min-h-[360px] overflow-hidden rounded-2xl border border-neutral-800">
